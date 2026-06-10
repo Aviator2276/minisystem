@@ -15,6 +15,11 @@ export default [
     },
   },
   {
-    ignores: ["eslint.config.js", ".prettierrc"],
+    ignores: [
+      "eslint.config.js",
+      ".prettierrc",
+      "src/components/ui/**",
+      "src/components/data-table.tsx",
+    ],
   },
 ]

@@ -8,59 +8,365 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root"
-import { Route as IndexRouteImport } from "./routes/index"
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as DebugRealtimeRouteImport } from './routes/debug-realtime'
+import { Route as TeamRouteRouteImport } from './routes/team/route'
+import { Route as AdminRouteRouteImport } from './routes/admin/route'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as TeamIndexRouteImport } from './routes/team/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminTeamsRouteImport } from './routes/admin/teams'
+import { Route as AdminEventsIndexRouteImport } from './routes/admin/events/index'
+import { Route as AdminEventsEventIdRouteRouteImport } from './routes/admin/events/$eventId/route'
+import { Route as AdminEventsEventIdIndexRouteImport } from './routes/admin/events/$eventId/index'
+import { Route as AdminEventsEventIdRankingsRouteImport } from './routes/admin/events/$eventId/rankings'
+import { Route as AdminEventsEventIdMatchesRouteImport } from './routes/admin/events/$eventId/matches'
+import { Route as AdminEventsEventIdControlRouteImport } from './routes/admin/events/$eventId/control'
 
-const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DebugRealtimeRoute = DebugRealtimeRouteImport.update({
+  id: '/debug-realtime',
+  path: '/debug-realtime',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamRouteRoute = TeamRouteRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRouteRoute = AdminRouteRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamIndexRoute = TeamIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TeamRouteRoute,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminTeamsRoute = AdminTeamsRouteImport.update({
+  id: '/teams',
+  path: '/teams',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminEventsIndexRoute = AdminEventsIndexRouteImport.update({
+  id: '/events/',
+  path: '/events/',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminEventsEventIdRouteRoute = AdminEventsEventIdRouteRouteImport.update({
+  id: '/events/$eventId',
+  path: '/events/$eventId',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminEventsEventIdIndexRoute = AdminEventsEventIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminEventsEventIdRouteRoute,
+} as any)
+const AdminEventsEventIdRankingsRoute =
+  AdminEventsEventIdRankingsRouteImport.update({
+    id: '/rankings',
+    path: '/rankings',
+    getParentRoute: () => AdminEventsEventIdRouteRoute,
+  } as any)
+const AdminEventsEventIdMatchesRoute =
+  AdminEventsEventIdMatchesRouteImport.update({
+    id: '/matches',
+    path: '/matches',
+    getParentRoute: () => AdminEventsEventIdRouteRoute,
+  } as any)
+const AdminEventsEventIdControlRoute =
+  AdminEventsEventIdControlRouteImport.update({
+    id: '/control',
+    path: '/control',
+    getParentRoute: () => AdminEventsEventIdRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute
+  '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
+  '/team': typeof TeamRouteRouteWithChildren
+  '/debug-realtime': typeof DebugRealtimeRoute
+  '/login': typeof LoginRoute
+  '/admin/teams': typeof AdminTeamsRoute
+  '/admin/': typeof AdminIndexRoute
+  '/team/': typeof TeamIndexRoute
+  '/admin/events/$eventId': typeof AdminEventsEventIdRouteRouteWithChildren
+  '/admin/events/': typeof AdminEventsIndexRoute
+  '/admin/events/$eventId/control': typeof AdminEventsEventIdControlRoute
+  '/admin/events/$eventId/matches': typeof AdminEventsEventIdMatchesRoute
+  '/admin/events/$eventId/rankings': typeof AdminEventsEventIdRankingsRoute
+  '/admin/events/$eventId/': typeof AdminEventsEventIdIndexRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute
+  '/': typeof IndexRoute
+  '/debug-realtime': typeof DebugRealtimeRoute
+  '/login': typeof LoginRoute
+  '/admin/teams': typeof AdminTeamsRoute
+  '/admin': typeof AdminIndexRoute
+  '/team': typeof TeamIndexRoute
+  '/admin/events': typeof AdminEventsIndexRoute
+  '/admin/events/$eventId/control': typeof AdminEventsEventIdControlRoute
+  '/admin/events/$eventId/matches': typeof AdminEventsEventIdMatchesRoute
+  '/admin/events/$eventId/rankings': typeof AdminEventsEventIdRankingsRoute
+  '/admin/events/$eventId': typeof AdminEventsEventIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/": typeof IndexRoute
+  '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
+  '/team': typeof TeamRouteRouteWithChildren
+  '/debug-realtime': typeof DebugRealtimeRoute
+  '/login': typeof LoginRoute
+  '/admin/teams': typeof AdminTeamsRoute
+  '/admin/': typeof AdminIndexRoute
+  '/team/': typeof TeamIndexRoute
+  '/admin/events/$eventId': typeof AdminEventsEventIdRouteRouteWithChildren
+  '/admin/events/': typeof AdminEventsIndexRoute
+  '/admin/events/$eventId/control': typeof AdminEventsEventIdControlRoute
+  '/admin/events/$eventId/matches': typeof AdminEventsEventIdMatchesRoute
+  '/admin/events/$eventId/rankings': typeof AdminEventsEventIdRankingsRoute
+  '/admin/events/$eventId/': typeof AdminEventsEventIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: "/"
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/team'
+    | '/debug-realtime'
+    | '/login'
+    | '/admin/teams'
+    | '/admin/'
+    | '/team/'
+    | '/admin/events/$eventId'
+    | '/admin/events/'
+    | '/admin/events/$eventId/control'
+    | '/admin/events/$eventId/matches'
+    | '/admin/events/$eventId/rankings'
+    | '/admin/events/$eventId/'
   fileRoutesByTo: FileRoutesByTo
-  to: "/"
-  id: "__root__" | "/"
+  to:
+    | '/'
+    | '/debug-realtime'
+    | '/login'
+    | '/admin/teams'
+    | '/admin'
+    | '/team'
+    | '/admin/events'
+    | '/admin/events/$eventId/control'
+    | '/admin/events/$eventId/matches'
+    | '/admin/events/$eventId/rankings'
+    | '/admin/events/$eventId'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/team'
+    | '/debug-realtime'
+    | '/login'
+    | '/admin/teams'
+    | '/admin/'
+    | '/team/'
+    | '/admin/events/$eventId'
+    | '/admin/events/'
+    | '/admin/events/$eventId/control'
+    | '/admin/events/$eventId/matches'
+    | '/admin/events/$eventId/rankings'
+    | '/admin/events/$eventId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRouteRoute: typeof AdminRouteRouteWithChildren
+  TeamRouteRoute: typeof TeamRouteRouteWithChildren
+  DebugRealtimeRoute: typeof DebugRealtimeRoute
+  LoginRoute: typeof LoginRoute
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/": {
-      id: "/"
-      path: "/"
-      fullPath: "/"
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/debug-realtime': {
+      id: '/debug-realtime'
+      path: '/debug-realtime'
+      fullPath: '/debug-realtime'
+      preLoaderRoute: typeof DebugRealtimeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/team/': {
+      id: '/team/'
+      path: '/'
+      fullPath: '/team/'
+      preLoaderRoute: typeof TeamIndexRouteImport
+      parentRoute: typeof TeamRouteRoute
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/teams': {
+      id: '/admin/teams'
+      path: '/teams'
+      fullPath: '/admin/teams'
+      preLoaderRoute: typeof AdminTeamsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/events/': {
+      id: '/admin/events/'
+      path: '/events'
+      fullPath: '/admin/events/'
+      preLoaderRoute: typeof AdminEventsIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/events/$eventId': {
+      id: '/admin/events/$eventId'
+      path: '/events/$eventId'
+      fullPath: '/admin/events/$eventId'
+      preLoaderRoute: typeof AdminEventsEventIdRouteRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/events/$eventId/': {
+      id: '/admin/events/$eventId/'
+      path: '/'
+      fullPath: '/admin/events/$eventId/'
+      preLoaderRoute: typeof AdminEventsEventIdIndexRouteImport
+      parentRoute: typeof AdminEventsEventIdRouteRoute
+    }
+    '/admin/events/$eventId/rankings': {
+      id: '/admin/events/$eventId/rankings'
+      path: '/rankings'
+      fullPath: '/admin/events/$eventId/rankings'
+      preLoaderRoute: typeof AdminEventsEventIdRankingsRouteImport
+      parentRoute: typeof AdminEventsEventIdRouteRoute
+    }
+    '/admin/events/$eventId/matches': {
+      id: '/admin/events/$eventId/matches'
+      path: '/matches'
+      fullPath: '/admin/events/$eventId/matches'
+      preLoaderRoute: typeof AdminEventsEventIdMatchesRouteImport
+      parentRoute: typeof AdminEventsEventIdRouteRoute
+    }
+    '/admin/events/$eventId/control': {
+      id: '/admin/events/$eventId/control'
+      path: '/control'
+      fullPath: '/admin/events/$eventId/control'
+      preLoaderRoute: typeof AdminEventsEventIdControlRouteImport
+      parentRoute: typeof AdminEventsEventIdRouteRoute
     }
   }
 }
 
+interface AdminEventsEventIdRouteRouteChildren {
+  AdminEventsEventIdControlRoute: typeof AdminEventsEventIdControlRoute
+  AdminEventsEventIdMatchesRoute: typeof AdminEventsEventIdMatchesRoute
+  AdminEventsEventIdRankingsRoute: typeof AdminEventsEventIdRankingsRoute
+  AdminEventsEventIdIndexRoute: typeof AdminEventsEventIdIndexRoute
+}
+
+const AdminEventsEventIdRouteRouteChildren: AdminEventsEventIdRouteRouteChildren =
+  {
+    AdminEventsEventIdControlRoute: AdminEventsEventIdControlRoute,
+    AdminEventsEventIdMatchesRoute: AdminEventsEventIdMatchesRoute,
+    AdminEventsEventIdRankingsRoute: AdminEventsEventIdRankingsRoute,
+    AdminEventsEventIdIndexRoute: AdminEventsEventIdIndexRoute,
+  }
+
+const AdminEventsEventIdRouteRouteWithChildren =
+  AdminEventsEventIdRouteRoute._addFileChildren(
+    AdminEventsEventIdRouteRouteChildren,
+  )
+
+interface AdminRouteRouteChildren {
+  AdminTeamsRoute: typeof AdminTeamsRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+  AdminEventsEventIdRouteRoute: typeof AdminEventsEventIdRouteRouteWithChildren
+  AdminEventsIndexRoute: typeof AdminEventsIndexRoute
+}
+
+const AdminRouteRouteChildren: AdminRouteRouteChildren = {
+  AdminTeamsRoute: AdminTeamsRoute,
+  AdminIndexRoute: AdminIndexRoute,
+  AdminEventsEventIdRouteRoute: AdminEventsEventIdRouteRouteWithChildren,
+  AdminEventsIndexRoute: AdminEventsIndexRoute,
+}
+
+const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
+  AdminRouteRouteChildren,
+)
+
+interface TeamRouteRouteChildren {
+  TeamIndexRoute: typeof TeamIndexRoute
+}
+
+const TeamRouteRouteChildren: TeamRouteRouteChildren = {
+  TeamIndexRoute: TeamIndexRoute,
+}
+
+const TeamRouteRouteWithChildren = TeamRouteRoute._addFileChildren(
+  TeamRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRouteRoute: AdminRouteRouteWithChildren,
+  TeamRouteRoute: TeamRouteRouteWithChildren,
+  DebugRealtimeRoute: DebugRealtimeRoute,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
-import type { getRouter } from "./router.tsx"
-import type { createStart } from "@tanstack/react-start"
-declare module "@tanstack/react-start" {
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
