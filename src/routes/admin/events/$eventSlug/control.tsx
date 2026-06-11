@@ -1,7 +1,30 @@
 import { useEffect, useState } from "react"
+import {
+  BanIcon,
+  CoffeeIcon,
+  DoorOpenIcon,
+  FlagIcon,
+  HandshakeIcon,
+  ListOrderedIcon,
+  SwordsIcon,
+  TrophyIcon,
+  UsersIcon,
+  VideoIcon,
+} from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,7 +55,9 @@ import {
 } from "@/server/functions/field-control"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
 import { SelectionBoard } from "@/components/selection-board"
-import { DISPLAY_VIEWS, setDisplayView } from "@/server/functions/display"
+import { setDisplayView } from "@/server/functions/display"
+import { getJudgeStatus } from "@/server/functions/judges"
+import type { JudgeStatus } from "@/server/judges/registry"
 import { postMatch } from "@/server/functions/scoring"
 import type { DisplayView } from "@/server/functions/display"
 import { listMatches } from "@/server/functions/matches"
@@ -48,23 +73,29 @@ import {
 } from "@/server/functions/selection"
 import type { EnrichedSelectionState } from "@/server/services/selection"
 import type { CachedAllianceScore } from "@/server/services/scoring"
+import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { matchShortLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ServerMessage } from "@/shared/realtime-messages"
 
 export const Route = createFileRoute("/admin/events/$eventSlug/control")({
   loader: async ({ context }) => {
-    const [field, matches, selection, bracket] = await Promise.all([
-      getFieldState({ data: { eventId: context.event.id } }),
-      listMatches({ data: { eventId: context.event.id } }),
-      getSelection({ data: { eventId: context.event.id } }),
-      getBracketView({ data: { eventId: context.event.id } }),
-    ])
-    return { field, matches, selection, bracket }
+    const [field, matches, selection, bracket, judgeStatus] = await Promise.all(
+      [
+        getFieldState({ data: { eventId: context.event.id } }),
+        listMatches({ data: { eventId: context.event.id } }),
+        getSelection({ data: { eventId: context.event.id } }),
+        getBracketView({ data: { eventId: context.event.id } }),
+        getJudgeStatus({ data: { eventId: context.event.id } }),
+      ]
+    )
+    return { field, matches, selection, bracket, judgeStatus }
   },
   component: ControlPanel,
 })
 
 type Totals = Extract<ServerMessage, { type: "score_update" }>["red"]
+type MatchRow = Awaited<ReturnType<typeof listMatches>>[number]
 
 const PHASE_LABELS: Record<string, string> = {
   no_entry: "Do not enter",
@@ -86,9 +117,7 @@ const PHASE_STYLES: Record<string, string> = {
   fault: "bg-destructive text-white",
 }
 
-function matchLabel(match: { type: string; number: number }) {
-  return `${match.type === "qualification" ? "Q" : "P"}${match.number}`
-}
+const matchLabel = matchShortLabel
 
 function ControlPanel() {
   const { event } = Route.useRouteContext()
@@ -100,6 +129,9 @@ function ControlPanel() {
   const [matches, setMatches] = useState(loaded.matches)
   const [view, setView] = useState(event.displayView as DisplayView)
   const [selection, setSelection] = useState(loaded.selection)
+  const [judgeStatus, setJudgeStatus] = useState<JudgeStatus>(
+    loaded.judgeStatus
+  )
 
   const current = matches.find((m) => m.id === field.matchId) ?? null
   const [totals, setTotals] = useState<{ red: Totals; blue: Totals }>({
@@ -149,6 +181,9 @@ function ControlPanel() {
     if (message.type === "selection_update") {
       setSelection(message.payload as EnrichedSelectionState)
     }
+    if (message.type === "judges_update") {
+      setJudgeStatus(message.payload as JudgeStatus)
+    }
     if (message.type === "bracket_update") {
       void router.invalidate()
     }
@@ -164,23 +199,23 @@ function ControlPanel() {
   const playFn = useServerFn(playMatch)
   const faultFn = useServerFn(fieldFault)
   const replayFn = useServerFn(replayMatch)
-  const postMatchFn = useServerFn(postMatch)
-  const setViewFn = useServerFn(setDisplayView)
+  const judgeStatusFn = useServerFn(getJudgeStatus)
+
+  // fallback poll catches judges pruned for inactivity (no event fires for them)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        setJudgeStatus(await judgeStatusFn({ data: { eventId } }))
+      } catch {
+        /* transient */
+      }
+    }, 7000)
+    return () => clearInterval(interval)
+  }, [eventId, judgeStatusFn])
 
   async function run(action: () => Promise<FieldState>) {
     try {
       setField(await action())
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  async function publishScores() {
-    if (!current) return
-    try {
-      await postMatchFn({ data: { matchId: current.id } })
-      await setViewFn({ data: { eventId, view: "results" } })
-      toast.success("Scores published")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
     }
@@ -191,16 +226,12 @@ function ControlPanel() {
     current !== null &&
     (current.status === "scored" || field.phase === "fault")
 
-  const canPublish =
-    !field.running && current !== null && current.status === "scored"
-
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle>Field</CardTitle>
-            <CardDescription>Server-authoritative match state</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
@@ -249,48 +280,61 @@ function ControlPanel() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Phase controls</CardTitle>
-            <CardDescription>
-              Drives the display screen and judge devices for everyone watching
-              this event
-            </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              disabled={field.running}
-              onClick={() => run(() => noEntryFn({ data: { eventId } }))}
-            >
-              Do not enter
-            </Button>
-            <Button
-              variant="outline"
-              disabled={field.running}
-              onClick={() => run(() => safeFn({ data: { eventId } }))}
-            >
-              Safe to enter
-            </Button>
-            <Button
-              disabled={
-                field.running || !current || current.status !== "scheduled"
-              }
-              onClick={() => run(() => playFn({ data: { eventId } }))}
-            >
-              Play match
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={!field.running}
-              onClick={() => run(() => faultFn({ data: { eventId } }))}
-            >
-              Field fault
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={!canReplay}
-              onClick={() => run(() => replayFn({ data: { eventId } }))}
-            >
-              Replay match
-            </Button>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium">Field entry</span>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  disabled={field.running}
+                  onClick={() => run(() => noEntryFn({ data: { eventId } }))}
+                >
+                  <BanIcon className="size-4" />
+                  Do not enter
+                </Button>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  disabled={field.running}
+                  onClick={() => run(() => safeFn({ data: { eventId } }))}
+                >
+                  <DoorOpenIcon className="size-4" />
+                  Safe to enter
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium">Match control</span>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  className="gap-2"
+                  disabled={
+                    field.running || !current || current.status !== "scheduled"
+                  }
+                  onClick={() => run(() => playFn({ data: { eventId } }))}
+                >
+                  Play match
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="gap-2"
+                  disabled={!field.running}
+                  onClick={() => run(() => faultFn({ data: { eventId } }))}
+                >
+                  Field fault
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="gap-2"
+                  disabled={!canReplay}
+                  onClick={() => run(() => replayFn({ data: { eventId } }))}
+                >
+                  Replay match
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -308,35 +352,186 @@ function ControlPanel() {
 
       <DisplayCard eventId={eventId} eventSlug={event.slug} view={view} />
 
-      <div className="flex items-center gap-3">
-        <Button disabled={!canPublish} onClick={publishScores}>
-          Publish scores
-        </Button>
-        {canPublish && (
-          <p className="text-sm text-muted-foreground">
-            Posts final scores and switches the display to results
-          </p>
-        )}
-        {current?.status === "posted" && (
-          <p className="text-sm text-muted-foreground">
-            Scores already published
-          </p>
-        )}
-      </div>
+      <PublishCard
+        eventId={eventId}
+        current={current}
+        running={field.running}
+        view={view}
+        redTotal={totals.red?.total ?? null}
+        blueTotal={totals.blue?.total ?? null}
+        judgeStatus={judgeStatus}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <AlliancePoints
-          alliance="red"
-          teams={current ? [current.red1, current.red2, current.red3] : []}
-          totals={totals.red}
-        />
-        <AlliancePoints
-          alliance="blue"
-          teams={current ? [current.blue1, current.blue2, current.blue3] : []}
-          totals={totals.blue}
-        />
+        {ALLIANCE_ORDER.map((side) => (
+          <AlliancePoints
+            key={side}
+            alliance={side}
+            teams={
+              current
+                ? side === "red"
+                  ? [current.red1, current.red2, current.red3]
+                  : [current.blue1, current.blue2, current.blue3]
+                : []
+            }
+            totals={totals[side]}
+          />
+        ))}
       </div>
     </div>
+  )
+}
+
+const POST_VIEWS: { view: DisplayView; label: string }[] = [
+  { view: "results", label: "Results" },
+  { view: "rankings", label: "Rankings" },
+  { view: "intermission", label: "Intermission" },
+]
+
+function PublishCard({
+  eventId,
+  current,
+  running,
+  view,
+  redTotal,
+  blueTotal,
+  judgeStatus,
+}: {
+  eventId: string
+  current: MatchRow | null
+  running: boolean
+  view: DisplayView
+  redTotal: number | null
+  blueTotal: number | null
+  judgeStatus: JudgeStatus
+}) {
+  const postMatchFn = useServerFn(postMatch)
+  const setViewFn = useServerFn(setDisplayView)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+
+  const submitted = current
+    ? judgeStatus.judges.filter((j) => j.submittedMatchId === current.id).length
+    : 0
+  const active = judgeStatus.active
+  const allSubmitted = active > 0 && submitted >= active
+  const posted = current?.status === "posted"
+  const canPublish = !running && current !== null && current.status === "scored"
+
+  async function moveView(next: DisplayView) {
+    try {
+      await setViewFn({ data: { eventId, view: next } })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function doPublish() {
+    if (!current) return
+    setPublishing(true)
+    try {
+      // fully publish: finalize the score, then move the audience display
+      await postMatchFn({ data: { matchId: current.id } })
+      await setViewFn({ data: { eventId, view: "results" } })
+      toast.success("Results published")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  function handlePublish() {
+    if (active > 0 && !allSubmitted) {
+      setConfirmOpen(true)
+      return
+    }
+    void doPublish()
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Publish &amp; results</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Judges submitted</span>
+            <Badge variant={allSubmitted ? "default" : "outline"}>
+              {submitted} / {active}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2 font-mono text-lg font-bold tabular-nums">
+            {ALLIANCE_ORDER.map((side, idx) => (
+              <span key={side} className="flex items-center gap-2">
+                {idx > 0 && (
+                  <span className="text-sm text-muted-foreground">–</span>
+                )}
+                <span style={{ color: `var(--alliance-${side})` }}>
+                  {(side === "red" ? redTotal : blueTotal) ?? 0}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button disabled={!canPublish || publishing} onClick={handlePublish}>
+            Publish results
+          </Button>
+          {posted && <Badge variant="secondary">Published</Badge>}
+          {!canPublish && !posted && (
+            <p className="text-sm text-muted-foreground">
+              Score the match to enable publishing
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs tracking-wide text-muted-foreground uppercase">
+            Audience display
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {POST_VIEWS.map(({ view: candidate, label }) => (
+              <Button
+                key={candidate}
+                size="sm"
+                variant={view === candidate ? "default" : "outline"}
+                onClick={() => moveView(candidate)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Publish before all judges submit?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Only {submitted} of {active} judges have submitted their scores.
+              You can override and publish now, or wait for the rest.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Wait</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false)
+                void doPublish()
+              }}
+            >
+              Publish anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   )
 }
 
@@ -443,6 +638,39 @@ const VIEW_LABELS: Record<DisplayView, string> = {
   camera: "Camera only",
 }
 
+const VIEW_ICONS: Record<DisplayView, LucideIcon> = {
+  lineup: UsersIcon,
+  match: SwordsIcon,
+  results: FlagIcon,
+  rankings: ListOrderedIcon,
+  selection: HandshakeIcon,
+  bracket: TrophyIcon,
+  intermission: CoffeeIcon,
+  camera: VideoIcon,
+}
+
+// Ordered to match the natural run-of-show: a match plays out left-to-right,
+// then the event flips into playoff mode. Intermission/camera are pulled out
+// into a quick-switch row since they're used to break away from either flow.
+const VIEW_GROUPS: {
+  label: string
+  hint: string
+  views: DisplayView[]
+}[] = [
+  {
+    label: "Match play",
+    hint: "lineup → match → results → rankings",
+    views: ["lineup", "match", "results", "rankings"],
+  },
+  {
+    label: "Playoffs",
+    hint: "alliance selection → elimination bracket",
+    views: ["selection", "bracket"],
+  },
+]
+
+const QUICK_VIEWS: DisplayView[] = ["intermission", "camera"]
+
 function DisplayCard({
   eventId,
   eventSlug,
@@ -454,36 +682,87 @@ function DisplayCard({
 }) {
   const setViewFn = useServerFn(setDisplayView)
 
+  async function switchTo(candidate: DisplayView) {
+    try {
+      await setViewFn({ data: { eventId, view: candidate } })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  function ViewButton({ candidate }: { candidate: DisplayView }) {
+    const Icon = VIEW_ICONS[candidate]
+    const active = view === candidate
+    return (
+      <Button
+        variant={active ? "default" : "outline"}
+        size="sm"
+        aria-pressed={active}
+        className="justify-start gap-2"
+        onClick={() => switchTo(candidate)}
+      >
+        <Icon className="size-4" />
+        {VIEW_LABELS[candidate]}
+      </Button>
+    )
+  }
+
+  const LiveIcon = VIEW_ICONS[view]
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Display screen</CardTitle>
-        <CardDescription>
-          What the audience sees — the preview below mirrors the live display
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Display screen</CardTitle>
+          </div>
+
+          <Badge variant="secondary" className="gap-1.5">
+            <LiveIcon className="size-3.5" />
+            Live: {VIEW_LABELS[view]}
+          </Badge>
+        </div>
+        <div className="flex flex-row items-center justify-center gap-2">
+          <div className="flex gap-2">
+            {QUICK_VIEWS.map((candidate) => {
+              const Icon = VIEW_ICONS[candidate]
+              const active = view === candidate
+              return (
+                <Button
+                  key={candidate}
+                  variant={active ? "default" : "secondary"}
+                  size="sm"
+                  aria-pressed={active}
+                  className="gap-2"
+                  onClick={() => switchTo(candidate)}
+                >
+                  <Icon className="size-4" />
+                  {VIEW_LABELS[candidate]}
+                </Button>
+              )
+            })}
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-wrap gap-2">
-          {DISPLAY_VIEWS.map((candidate) => (
-            <Button
-              key={candidate}
-              variant={view === candidate ? "default" : "outline"}
-              size="sm"
-              onClick={async () => {
-                try {
-                  await setViewFn({ data: { eventId, view: candidate } })
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error ? error.message : String(error)
-                  )
-                }
-              }}
-            >
-              {VIEW_LABELS[candidate]}
-            </Button>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {VIEW_GROUPS.map((group) => (
+            <div key={group.label} className="flex flex-col gap-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-medium">{group.label}</span>
+                <span className="text-xs text-muted-foreground">
+                  {group.hint}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {group.views.map((candidate) => (
+                  <ViewButton key={candidate} candidate={candidate} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
-        <div className="relative aspect-video w-full max-w-2xl overflow-hidden border bg-black">
+        <div className="relative mx-auto aspect-video w-full max-w-2xl overflow-hidden border bg-black">
           <iframe
             src={`/display/${eventSlug}?preview=1`}
             title="Display preview"
@@ -529,7 +808,7 @@ function SelectionCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <SelectionBoard state={selection} />
+        <SelectionBoard state={selection} showInviteBanner={false} />
 
         {selection.pendingInvite && (
           <div className="flex gap-2">
@@ -560,19 +839,24 @@ function SelectionCard({
               <span className="text-xs font-medium text-muted-foreground">
                 Invite (rank order):
               </span>
-              <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-                {selection.available.map((team) => (
+              <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+                {selection.available.map((team, index) => (
                   <Button
                     key={team.teamId}
                     size="sm"
                     variant="outline"
+                    className="w-full justify-start gap-2 font-normal"
                     onClick={() =>
                       act(() =>
                         inviteFn({ data: { eventId, teamId: team.teamId } })
                       )
                     }
                   >
-                    {team.number} {team.name}
+                    <span className="w-5 text-center text-xs font-bold text-muted-foreground tabular-nums">
+                      {index + 1}
+                    </span>
+                    <span className="font-mono font-bold">{team.number}</span>
+                    <span className="truncate">{team.name}</span>
                   </Button>
                 ))}
               </div>

@@ -50,7 +50,9 @@ export interface StrongholdScore {
 const robotPayload = z.object({ robotIndex: z.number().int().min(0).max(2) })
 const crossPayload = z.object({
   robotIndex: z.number().int().min(0).max(2).optional(),
-  defenseIndex: z.number().int().min(0).max(4),
+  // optional so an auto cross can be recorded per-robot without naming a
+  // defense; teleop crosses always carry the defense they damage
+  defenseIndex: z.number().int().min(0).max(4).optional(),
 })
 const emptyPayload = z.object({})
 
@@ -82,14 +84,21 @@ function reduce(
   switch (event.type) {
     case "REACH": {
       const robot = next.robots[payload.robotIndex ?? 0]
-      // a crossing supersedes a reach
-      if (robot.auto === "none") robot.auto = "reach"
+      // reach/cross is a toggle: switching off a cross frees its auto-cross count
+      if (robot.auto === "cross")
+        next.crossings.auto = Math.max(0, next.crossings.auto - 1)
+      robot.auto = "reach"
       break
     }
     case "AUTO_CROSS": {
-      if (payload.robotIndex !== undefined)
-        next.robots[payload.robotIndex].auto = "cross"
-      next.crossings.auto += 1
+      if (payload.robotIndex !== undefined) {
+        const robot = next.robots[payload.robotIndex]
+        // only count a genuinely new cross, so reach<->cross toggles stay exact
+        if (robot.auto !== "cross") next.crossings.auto += 1
+        robot.auto = "cross"
+      } else {
+        next.crossings.auto += 1
+      }
       damage(next, payload.defenseIndex)
       break
     }
@@ -115,6 +124,10 @@ function reduce(
       break
     case "SCALE":
       next.robots[payload.robotIndex ?? 0].endgame = "scale"
+      break
+    // lets the endgame selector return a robot to "nothing" (last write wins)
+    case "ENDGAME_CLEAR":
+      next.robots[payload.robotIndex ?? 0].endgame = "none"
       break
     case "FOUL":
       next.fouls += 1
@@ -303,6 +316,12 @@ export const stronghold: GameDefinition<StrongholdScore> = {
     SCALE: {
       payload: robotPayload,
       label: "Scale",
+      phases: ["endgame"],
+      target: "robot",
+    },
+    ENDGAME_CLEAR: {
+      payload: robotPayload,
+      label: "Clear Endgame",
       phases: ["endgame"],
       target: "robot",
     },

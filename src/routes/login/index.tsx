@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { getCurrentUser, login } from "@/server/functions/auth"
+import { KeyboardMusicIcon } from "lucide-react"
 
 export const Route = createFileRoute("/login/")({
   beforeLoad: async () => {
@@ -56,7 +57,10 @@ function AdminLoginPage() {
     <main className="flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>MiniSystem</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <KeyboardMusicIcon className="size-5" />
+            MiniSystem
+          </CardTitle>
           <CardDescription>
             Admin sign in with your email or username.
           </CardDescription>

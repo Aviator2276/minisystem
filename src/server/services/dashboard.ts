@@ -1,4 +1,4 @@
-import { count, desc, eq } from "drizzle-orm"
+import { and, count, desc, eq, ne } from "drizzle-orm"
 import { tables } from "@/db"
 import type { Db } from "@/db"
 import type { CachedAllianceScore } from "./scoring"
@@ -62,15 +62,20 @@ export function getAdminDashboard(db: Db): AdminDashboard {
     })
 
   const eventNames = new Map(events.map((e) => [e.id, e.name]))
+  // practice matches never count toward stats
+  const realPosted = and(
+    eq(tables.matches.status, "posted"),
+    ne(tables.matches.type, "practice")
+  )
   const [{ value: postedMatchCount }] = db
     .select({ value: count() })
     .from(tables.matches)
-    .where(eq(tables.matches.status, "posted"))
+    .where(realPosted)
     .all()
   const posted = db
     .select()
     .from(tables.matches)
-    .where(eq(tables.matches.status, "posted"))
+    .where(realPosted)
     .orderBy(desc(tables.matches.scheduledOrder))
     .limit(20)
     .all()

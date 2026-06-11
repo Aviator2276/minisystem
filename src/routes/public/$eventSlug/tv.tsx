@@ -3,7 +3,14 @@ import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
 import { useRealtime } from "@/hooks/use-realtime"
+import {
+  RANKINGS_PAGE_MS,
+  RANKINGS_PAGE_SIZE,
+  useRotatingPage,
+} from "@/hooks/use-rotating-page"
 import { getDisplayBootstrap } from "@/server/functions/display"
+import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { matchLongLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 
 const PANEL_MS = 10_000
@@ -46,13 +53,24 @@ function TvMode() {
   }, [boot.rankings.length, boot.bracket.matches.length])
 
   const [index, setIndex] = useState(0)
+  // the rankings panel stays long enough to page through every team before
+  // rotating away; other panels use the fixed dwell
   useEffect(() => {
-    const interval = setInterval(
-      () => setIndex((i) => (i + 1) % panels.length),
-      PANEL_MS
+    const current = panels[index % panels.length]
+    const rankingPages = Math.max(
+      1,
+      Math.ceil(boot.rankings.length / RANKINGS_PAGE_SIZE)
     )
-    return () => clearInterval(interval)
-  }, [panels.length])
+    const duration =
+      current === "rankings"
+        ? Math.max(PANEL_MS, rankingPages * RANKINGS_PAGE_MS)
+        : PANEL_MS
+    const t = setTimeout(
+      () => setIndex((i) => (i + 1) % panels.length),
+      duration
+    )
+    return () => clearTimeout(t)
+  }, [index, panels, boot.rankings.length])
 
   const panel = panels[index % panels.length]
 
@@ -151,11 +169,18 @@ function TvRankings({
     ties: number
   }[]
 }) {
+  const { page, pageCount, start, end } = useRotatingPage(
+    rankings.length,
+    RANKINGS_PAGE_SIZE,
+    RANKINGS_PAGE_MS
+  )
+  const visible = rankings.slice(start, end)
+
   return (
     <Centered title="Rankings">
       <table className="mx-auto w-full max-w-3xl text-2xl">
-        <tbody>
-          {rankings.slice(0, 10).map((row, i) => (
+        <tbody key={page}>
+          {visible.map((row, i) => (
             <motion.tr
               key={row.teamId}
               className="odd:bg-white/5"
@@ -180,6 +205,12 @@ function TvRankings({
           ))}
         </tbody>
       </table>
+      {pageCount > 1 && (
+        <div className="mt-6 text-center text-xl text-white/50 tabular-nums">
+          Ranks {start + 1}–{Math.min(end, rankings.length)} of{" "}
+          {rankings.length}
+        </div>
+      )}
     </Centered>
   )
 }
@@ -216,8 +247,7 @@ function TvUpNext({
       : (matches.find((m) => m.status === "scheduled") ?? null)
   const lastPosted = [...matches].reverse().find((m) => m.status === "posted")
 
-  const label = (m: { type: string; number: number }) =>
-    `${m.type === "qualification" ? "Qualification" : "Playoff"} ${m.number}`
+  const label = matchLongLabel
   const lineup = (m: typeof next, side: "red" | "blue") =>
     m
       ? (side === "red"
@@ -248,25 +278,22 @@ function TvUpNext({
             {label(next)}
           </motion.h1>
           <div className="flex items-center gap-12 text-4xl font-bold tabular-nums">
-            <motion.div
-              className="flex flex-col items-center gap-2"
-              initial={{ x: -50, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-            >
-              <span style={{ color: "var(--alliance-red)" }}>RED</span>
-              <span>{lineup(next, "red")}</span>
-            </motion.div>
-            <span className="text-2xl text-white/40">vs</span>
-            <motion.div
-              className="flex flex-col items-center gap-2"
-              initial={{ x: 50, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-            >
-              <span style={{ color: "var(--alliance-blue)" }}>BLUE</span>
-              <span>{lineup(next, "blue")}</span>
-            </motion.div>
+            {ALLIANCE_ORDER.map((side, idx) => (
+              <span key={side} className="flex items-center gap-12">
+                {idx > 0 && <span className="text-2xl text-white/40">vs</span>}
+                <motion.div
+                  className="flex flex-col items-center gap-2"
+                  initial={{ x: idx === 0 ? -50 : 50, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <span style={{ color: `var(--alliance-${side})` }}>
+                    {side.toUpperCase()}
+                  </span>
+                  <span>{lineup(next, side)}</span>
+                </motion.div>
+              </span>
+            ))}
           </div>
         </>
       ) : (
@@ -279,8 +306,10 @@ function TvUpNext({
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
         >
-          Last result: {label(lastPosted)} — {lastPosted.redPoints}–
-          {lastPosted.bluePoints}
+          Last result: {label(lastPosted)} —{" "}
+          {ALLIANCE_ORDER.map((s) =>
+            s === "red" ? lastPosted.redPoints : lastPosted.bluePoints
+          ).join("–")}
         </motion.p>
       )}
     </div>

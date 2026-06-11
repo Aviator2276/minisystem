@@ -5,9 +5,11 @@ import { animate, motion, useMotionValue, useTransform } from "motion/react"
 export function AnimatedNumber({
   value,
   className,
+  style,
 }: {
   value: number
   className?: string
+  style?: React.CSSProperties
 }) {
   const motionValue = useMotionValue(value)
   const rounded = useTransform(motionValue, (v) => Math.round(v))
@@ -34,7 +36,7 @@ export function AnimatedNumber({
   return (
     <motion.span
       className={className}
-      style={{ scale, display: "inline-block" }}
+      style={{ ...style, scale, display: "inline-block" }}
     >
       <motion.span>{rounded}</motion.span>
     </motion.span>

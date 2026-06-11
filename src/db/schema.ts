@@ -106,7 +106,8 @@ export const eventTeams = sqliteTable(
   (t) => [uniqueIndex("event_teams_event_team_unique").on(t.eventId, t.teamId)]
 )
 
-export type MatchType = "qualification" | "playoff"
+// `practice` matches never count toward rankings or team statistics
+export type MatchType = "qualification" | "playoff" | "practice"
 export type MatchStatus = "scheduled" | "running" | "scored" | "posted"
 export type AllianceColor = "red" | "blue"
 

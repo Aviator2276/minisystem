@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2Icon } from "lucide-react"
+import { Loader2Icon, PlusIcon, Trash2Icon } from "lucide-react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
@@ -19,12 +19,20 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -35,13 +43,21 @@ import {
 } from "@/components/ui/table"
 import { getGame } from "@/games"
 import { listEventTeams } from "@/server/functions/events"
-import { listMatches, regenerateQualSchedule } from "@/server/functions/matches"
+import {
+  createCustomMatch,
+  deleteMatch,
+  generateMoreQualMatches,
+  listMatches,
+  regenerateQualSchedule,
+} from "@/server/functions/matches"
 import {
   listScoreEvents,
   postMatch,
   recordScoreEvent,
   undoScoreEvent,
 } from "@/server/functions/scoring"
+import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { matchShortLabel } from "@/shared/match-format"
 
 export const Route = createFileRoute("/admin/events/$eventSlug/matches")({
   loader: async ({ context }) => {
@@ -60,14 +76,34 @@ function MatchesPage() {
   const { event, matches, roster } = Route.useLoaderData()
   const router = useRouter()
   const regenerateFn = useServerFn(regenerateQualSchedule)
+  const generateMoreFn = useServerFn(generateMoreQualMatches)
+  const deleteFn = useServerFn(deleteMatch)
   const [scoring, setScoring] = useState<MatchRow | null>(null)
   const [generating, setGenerating] = useState(false)
   const [pendingRounds, setPendingRounds] = useState<number | null>(null)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<MatchRow | null>(null)
+
+  const canEdit = event.status === "setup" || event.status === "quals"
 
   async function runRegenerate(rounds: number) {
     setGenerating(true)
     try {
       await regenerateFn({ data: { eventId: event.id, roundsPerTeam: rounds } })
+      await router.invalidate()
+    } catch (error) {
+      toast.error(String(error))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function runGenerateMore(rounds: number) {
+    setGenerating(true)
+    try {
+      await generateMoreFn({
+        data: { eventId: event.id, additionalRounds: rounds },
+      })
       await router.invalidate()
     } catch (error) {
       toast.error(String(error))
@@ -82,47 +118,71 @@ function MatchesPage() {
 
   return (
     <div className="flex max-w-4xl flex-col gap-4">
-      {event.status === "setup" && (
-        <form
-          className="flex items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const rounds = Number(new FormData(e.currentTarget).get("rounds"))
-            if (matches.length > 0) {
-              setPendingRounds(rounds)
-            } else {
-              void runRegenerate(rounds)
-            }
-          }}
-        >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rounds">Rounds per team</Label>
-            <Input
-              id="rounds"
-              name="rounds"
-              type="number"
-              min={1}
-              max={12}
-              defaultValue={3}
-              className="w-24"
-            />
-          </div>
-          <Button type="submit">
-            {matches.length > 0 ? "Regenerate schedule" : "Generate schedule"}
+      {canEdit && (
+        <div className="flex flex-wrap items-end gap-2">
+          <form
+            className="flex items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const rounds = Number(new FormData(e.currentTarget).get("rounds"))
+              if (!rounds) return
+              void runGenerateMore(rounds)
+            }}
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="rounds">Rounds per team</Label>
+              <Input
+                id="rounds"
+                name="rounds"
+                type="number"
+                min={1}
+                max={12}
+                defaultValue={3}
+                className="w-24"
+              />
+            </div>
+            <Button
+              type="submit"
+              variant={matches.length > 0 ? "outline" : "default"}
+            >
+              {matches.length > 0 ? "Generate more" : "Generate schedule"}
+            </Button>
+          </form>
+
+          <Button variant="outline" onClick={() => setCustomOpen(true)}>
+            <PlusIcon />
+            Add custom match
           </Button>
-        </form>
+
+          {event.status === "setup" && matches.length > 0 && (
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const input = document.getElementById(
+                  "rounds"
+                ) as HTMLInputElement | null
+                setPendingRounds(Number(input?.value) || 3)
+              }}
+            >
+              Regenerate
+            </Button>
+          )}
+        </div>
       )}
 
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Match</TableHead>
-            <TableHead className="text-[var(--alliance-red,#dc2626)]">
-              Red
-            </TableHead>
-            <TableHead className="text-[var(--alliance-blue,#2563eb)]">
-              Blue
-            </TableHead>
+            {ALLIANCE_ORDER.map((side) => (
+              <TableHead
+                key={side}
+                className="capitalize"
+                style={{ color: `var(--alliance-${side})` }}
+              >
+                {side}
+              </TableHead>
+            ))}
             <TableHead>Score</TableHead>
             <TableHead>Status</TableHead>
             <TableHead />
@@ -132,19 +192,31 @@ function MatchesPage() {
           {matches.map((match) => (
             <TableRow key={match.id}>
               <TableCell>
-                {match.type === "qualification" ? "Q" : "P"}
-                {match.number}
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="font-medium">{matchShortLabel(match)}</span>
+                  {match.type === "practice" && (
+                    <Badge variant="secondary" className="text-[0.65rem]">
+                      practice
+                    </Badge>
+                  )}
+                </span>
               </TableCell>
-              <TableCell>
-                {[match.red1, match.red2, match.red3].map(label).join(" · ")}
-                {match.surrogates.length > 0 && " *"}
-              </TableCell>
-              <TableCell>
-                {[match.blue1, match.blue2, match.blue3].map(label).join(" · ")}
-              </TableCell>
+              {ALLIANCE_ORDER.map((side) => (
+                <TableCell key={side}>
+                  {(side === "red"
+                    ? [match.red1, match.red2, match.red3]
+                    : [match.blue1, match.blue2, match.blue3]
+                  )
+                    .map(label)
+                    .join(" · ")}
+                  {side === "red" && match.surrogates.length > 0 && " *"}
+                </TableCell>
+              ))}
               <TableCell className="font-mono">
                 {match.redPoints !== null
-                  ? `${match.redPoints}–${match.bluePoints}`
+                  ? `${ALLIANCE_ORDER.map((s) =>
+                      s === "red" ? match.redPoints : match.bluePoints
+                    ).join("–")}`
                   : "—"}
               </TableCell>
               <TableCell>
@@ -155,13 +227,26 @@ function MatchesPage() {
                 </Badge>
               </TableCell>
               <TableCell className="text-right">
-                <Button
-                  variant="outline"
-                  size="xs"
-                  onClick={() => setScoring(match)}
-                >
-                  Score
-                </Button>
+                <div className="flex justify-end gap-1">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => setScoring(match)}
+                  >
+                    Score
+                  </Button>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      title="Delete match"
+                      disabled={match.status === "running"}
+                      onClick={() => setPendingDelete(match)}
+                    >
+                      <Trash2Icon className="text-destructive" />
+                    </Button>
+                  )}
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -224,7 +309,200 @@ function MatchesPage() {
           </DialogHeader>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {pendingDelete ? matchShortLabel(pendingDelete) : "match"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the match and any recorded scores. This cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                const match = pendingDelete!
+                setPendingDelete(null)
+                try {
+                  await deleteFn({
+                    data: { eventId: event.id, matchId: match.id },
+                  })
+                  await router.invalidate()
+                } catch (error) {
+                  toast.error(String(error))
+                }
+              }}
+            >
+              Delete match
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <CustomMatchDialog
+        open={customOpen}
+        onOpenChange={setCustomOpen}
+        eventId={event.id}
+        roster={roster}
+        onCreated={async () => {
+          setCustomOpen(false)
+          await router.invalidate()
+        }}
+      />
     </div>
+  )
+}
+
+function CustomMatchDialog({
+  open,
+  onOpenChange,
+  eventId,
+  roster,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  eventId: string
+  roster: Awaited<ReturnType<typeof listEventTeams>>
+  onCreated: () => void
+}) {
+  const createFn = useServerFn(createCustomMatch)
+  const [matchType, setMatchType] = useState<"qualification" | "practice">(
+    "practice"
+  )
+  const [red, setRed] = useState<(string | null)[]>([null, null, null])
+  const [blue, setBlue] = useState<(string | null)[]>([null, null, null])
+  const [saving, setSaving] = useState(false)
+
+  const chosen = new Set([...red, ...blue].filter(Boolean) as string[])
+
+  function slot(
+    side: "red" | "blue",
+    index: number,
+    value: string | null,
+    set: (next: (string | null)[]) => void,
+    current: (string | null)[]
+  ) {
+    return (
+      <Select
+        value={value ?? "none"}
+        onValueChange={(v) => {
+          const next = [...current]
+          next[index] = v === "none" ? null : v
+          set(next)
+        }}
+      >
+        <SelectTrigger
+          className="w-full"
+          style={{
+            borderColor:
+              side === "red" ? "var(--alliance-red)" : "var(--alliance-blue)",
+          }}
+        >
+          <SelectValue placeholder="—" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">— empty —</SelectItem>
+          {roster.map((t) => (
+            <SelectItem
+              key={t.teamId}
+              value={t.teamId}
+              disabled={chosen.has(t.teamId) && value !== t.teamId}
+            >
+              {t.number} {t.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add custom match</DialogTitle>
+          <DialogDescription>
+            Pick the alliances. Practice matches never count toward rankings or
+            team statistics.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Match type</Label>
+          <Select
+            value={matchType}
+            onValueChange={(v) =>
+              setMatchType(v as "qualification" | "practice")
+            }
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="practice">Practice (unranked)</SelectItem>
+              <SelectItem value="qualification">Qualification</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          {ALLIANCE_ORDER.map((side) => {
+            const value = side === "red" ? red : blue
+            const set = side === "red" ? setRed : setBlue
+            return (
+              <div key={side} className="flex flex-col gap-2">
+                <span
+                  className="text-xs font-bold tracking-wide capitalize uppercase"
+                  style={{ color: `var(--alliance-${side})` }}
+                >
+                  {side}
+                </span>
+                {[0, 1, 2].map((i) => (
+                  <div key={i}>{slot(side, i, value[i], set, value)}</div>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+
+        <DialogFooter>
+          <Button
+            disabled={saving || chosen.size === 0}
+            onClick={async () => {
+              setSaving(true)
+              try {
+                await createFn({
+                  data: {
+                    eventId,
+                    matchType,
+                    red: [red[0] ?? null, red[1] ?? null, red[2] ?? null],
+                    blue: [blue[0] ?? null, blue[1] ?? null, blue[2] ?? null],
+                  },
+                })
+                setRed([null, null, null])
+                setBlue([null, null, null])
+                toast.success("Match added")
+                onCreated()
+              } catch (error) {
+                toast.error(String(error))
+              } finally {
+                setSaving(false)
+              }
+            }}
+          >
+            Add match
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -287,8 +565,7 @@ function ScoreDialog({
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            Score {match.type === "qualification" ? "Q" : "P"}
-            {match.number} —{" "}
+            Score {matchShortLabel(match)} —{" "}
             <span className="font-mono">
               {points.red ?? 0}–{points.blue ?? 0}
             </span>
@@ -299,7 +576,7 @@ function ScoreDialog({
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-4">
-          {(["red", "blue"] as const).map((alliance) => (
+          {ALLIANCE_ORDER.map((alliance) => (
             <div key={alliance} className="flex flex-col gap-2">
               <h3
                 className={`text-xs font-medium ${alliance === "red" ? "text-red-600" : "text-blue-600"}`}

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
-import { AnimatePresence, motion } from "motion/react"
+import { motion } from "motion/react"
 import { AnimatedNumber } from "@/components/animated-number"
-import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 import { TOWER_STRENGTH, opponentTowerStrength } from "@/games/stronghold"
 import type { StrongholdScore } from "@/games/stronghold"
 import { useServerClock } from "@/hooks/use-server-clock"
+import { ALLIANCE_ORDER } from "@/shared/alliance"
 import type { TimelineSegment } from "@/games/types"
 import type { ServerMessage } from "@/shared/realtime-messages"
 
@@ -22,6 +23,17 @@ const PHASE_COLORS: Record<string, string> = {
   endgame: "bg-yellow-400",
   post_match: "bg-red-600",
   fault: "bg-red-700",
+}
+
+const PHASE_LABELS: Record<string, string> = {
+  no_entry: "Stand by",
+  safe_to_enter: "Get ready",
+  auto: "Autonomous",
+  pause: "Pause",
+  teleop: "Teleop",
+  endgame: "Endgame",
+  post_match: "Final",
+  fault: "Field fault",
 }
 
 function formatTime(ms: number): string {
@@ -87,18 +99,48 @@ export function Scoreboard({
       : ["—", "—", "—"]
 
   const phaseColor = PHASE_COLORS[field.phase] ?? "bg-muted"
+  const phaseLabel = PHASE_LABELS[field.phase] ?? field.phase
+  const [leftSide, rightSide] = ALLIANCE_ORDER
 
   return (
-    <div className="flex items-stretch overflow-hidden bg-card shadow-2xl">
+    <div className="flex items-stretch overflow-hidden border border-border bg-card shadow-2xl">
       <AlliancePanel
-        side="red"
-        teams={teamsOf("red")}
-        mine={live.red}
-        opponent={live.blue}
+        side={leftSide}
+        teams={teamsOf(leftSide)}
+        mine={live[leftSide]}
+        opponent={live[rightSide]}
+        mirrored={false}
       />
-      <div className="flex w-48 flex-col items-center justify-center gap-0.5 border-x border-border px-3">
-        <div className="text-center text-xs text-muted-foreground">{label}</div>
-        <div className="relative h-1 w-full overflow-hidden bg-muted">
+
+      <div className="flex shrink-0 flex-col items-center justify-center gap-0.5 border-x border-border px-8 py-2">
+        <div className="text-sm font-semibold tracking-widest text-muted-foreground uppercase">
+          {label}
+        </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3 leading-none">
+          <AnimatedNumber
+            value={live[leftSide].totals?.total ?? 0}
+            className="min-w-[1.6em] justify-self-end text-right text-8xl font-medium tabular-nums"
+            style={{ color: `var(--alliance-${leftSide})` }}
+          />
+          <span className="pb-2 text-4xl font-light text-muted-foreground">
+            –
+          </span>
+          <AnimatedNumber
+            value={live[rightSide].totals?.total ?? 0}
+            className="min-w-[1.6em] justify-self-start text-left text-8xl font-medium tabular-nums"
+            style={{ color: `var(--alliance-${rightSide})` }}
+          />
+        </div>
+        {remainingMs !== null ? (
+          <div className="text-3xl font-bold text-card-foreground tabular-nums">
+            {formatTime(remainingMs)}
+          </div>
+        ) : (
+          <div className="text-base font-semibold text-muted-foreground">
+            {phaseLabel}
+          </div>
+        )}
+        <div className="relative h-1.5 w-full overflow-hidden bg-muted">
           {progressPct !== null && (
             <div
               className={`absolute inset-y-0 left-0 transition-[width] duration-100 ease-linear ${phaseColor}`}
@@ -106,28 +148,14 @@ export function Scoreboard({
             />
           )}
         </div>
-        {remainingMs !== null && (
-          <div className="text-base font-bold text-card-foreground tabular-nums">
-            {formatTime(remainingMs)}
-          </div>
-        )}
-        <div className="flex items-center gap-2 text-4xl font-bold tabular-nums">
-          <AnimatedNumber
-            value={live.red.totals?.total ?? 0}
-            className="text-[color:var(--alliance-red)]"
-          />
-          <span className="text-lg text-muted-foreground">–</span>
-          <AnimatedNumber
-            value={live.blue.totals?.total ?? 0}
-            className="text-[color:var(--alliance-blue)]"
-          />
-        </div>
       </div>
+
       <AlliancePanel
-        side="blue"
-        teams={teamsOf("blue")}
-        mine={live.blue}
-        opponent={live.red}
+        side={rightSide}
+        teams={teamsOf(rightSide)}
+        mine={live[rightSide]}
+        opponent={live[leftSide]}
+        mirrored={true}
       />
     </div>
   )
@@ -138,11 +166,14 @@ function AlliancePanel({
   teams,
   mine,
   opponent,
+  mirrored,
 }: {
   side: "red" | "blue"
   teams: (number | string)[]
   mine: AllianceLive
   opponent: AllianceLive
+  /** mirror the inner layout (the panel sitting on the right edge) */
+  mirrored: boolean
 }) {
   const color = side === "red" ? "var(--alliance-red)" : "var(--alliance-blue)"
   // this alliance's tower is depleted by the OPPONENT's boulders
@@ -155,14 +186,20 @@ function AlliancePanel({
 
   return (
     <div
-      className={`flex flex-1 items-center gap-4 px-4 ${side === "blue" ? "flex-row-reverse" : ""}`}
-      style={{ borderTop: `4px solid ${color}` }}
+      className={cn(
+        "flex flex-1 items-center gap-5 overflow-hidden px-6 py-3",
+        mirrored ? "flex-row-reverse text-right" : "text-left"
+      )}
+      style={{
+        borderTop: `6px solid ${color}`,
+        background: `color-mix(in oklch, ${color} 10%, var(--card))`,
+      }}
     >
       <div className="flex flex-col gap-0.5">
         {teams.map((number, i) => (
           <div
             key={i}
-            className="w-12 px-1.5 py-px text-center text-sm font-bold tabular-nums"
+            className="w-16 px-2 py-0.5 text-center text-xl font-black text-white tabular-nums"
             style={{ backgroundColor: color }}
           >
             {number}
@@ -170,85 +207,125 @@ function AlliancePanel({
         ))}
       </div>
 
-      <div className="flex flex-col gap-1">
-        <div className="text-xs tracking-widest text-muted-foreground uppercase">
-          Tower
+      <div className="flex flex-col gap-2">
+        <div>
+          <div className="mb-1 text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+            Tower
+          </div>
+          <div className="flex gap-1">
+            {Array.from({ length: TOWER_STRENGTH }).map((_, i) => (
+              <div
+                key={i}
+                className="h-5 w-5 transition-colors duration-300"
+                style={{
+                  backgroundColor: i < tower ? color : "var(--muted)",
+                  opacity: i < tower ? 1 : 0.5,
+                }}
+              />
+            ))}
+          </div>
         </div>
-        <div className="flex gap-0.5">
-          {Array.from({ length: TOWER_STRENGTH }).map((_, i) => (
-            <div
-              key={i}
-              className="h-3 w-4 transition-colors duration-300"
-              style={{
-                backgroundColor: i < tower ? color : "var(--muted)",
-                opacity: i < tower ? 1 : 0.6,
-              }}
-            />
-          ))}
-        </div>
-        <div className="text-xs tracking-widest text-muted-foreground uppercase">
-          Defenses
-        </div>
-        <div className="flex gap-0.5">
-          {defenses.map((strength, i) => (
-            <div key={i} className="flex flex-col gap-px">
-              {[1, 2].map((level) => (
-                <div
-                  key={level}
-                  className="h-1.5 w-4 transition-colors duration-300"
-                  style={{
-                    backgroundColor:
-                      strength >= level
-                        ? "var(--card-foreground)"
-                        : "var(--muted)",
-                  }}
-                />
-              ))}
-            </div>
-          ))}
+        <div>
+          <div className="mb-1 text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+            Defenses
+          </div>
+          <div className="flex gap-1">
+            {defenses.map((strength, i) => (
+              <div key={i} className="flex flex-col gap-0.5">
+                {[1, 2].map((level) => (
+                  <div
+                    key={level}
+                    className="h-2 w-5 transition-colors duration-300"
+                    style={{
+                      backgroundColor:
+                        strength >= level
+                          ? "var(--card-foreground)"
+                          : "var(--muted)",
+                    }}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-0.5 text-xs">
-        <div>
-          High{" "}
-          <span className="font-bold tabular-nums">
+      <div className="flex w-24 flex-col gap-1">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-xs tracking-wide text-muted-foreground uppercase">
+            High
+          </span>
+          <span className="text-xl font-bold tabular-nums">
             {(boulders?.autoHigh ?? 0) + (boulders?.teleHigh ?? 0)}
           </span>
         </div>
-        <div>
-          Low{" "}
-          <span className="font-bold tabular-nums">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-xs tracking-wide text-muted-foreground uppercase">
+            Low
+          </span>
+          <span className="text-xl font-bold tabular-nums">
             {(boulders?.autoLow ?? 0) + (boulders?.teleLow ?? 0)}
           </span>
         </div>
-        <div className="flex gap-1">
-          <AnimatePresence>
-            {mine.totals?.breach && (
-              <motion.div
-                key="breach"
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 380, damping: 18 }}
-              >
-                <Badge variant="secondary">BREACH</Badge>
-              </motion.div>
-            )}
-            {mine.totals?.capture && (
-              <motion.div
-                key="capture"
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 380, damping: 18 }}
-              >
-                <Badge variant="secondary">CAPTURE</Badge>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+      </div>
+
+      <div
+        className={cn(
+          "flex flex-col gap-1.5",
+          side === "red" ? "ml-auto" : "mr-auto"
+        )}
+      >
+        <ObjectiveBadge
+          label="Breach"
+          achieved={mine.totals?.breach ?? false}
+          color={color}
+        />
+        <ObjectiveBadge
+          label="Capture"
+          achieved={mine.totals?.capture ?? false}
+          color={color}
+        />
       </div>
     </div>
+  )
+}
+
+/**
+ * Bonus-objective indicator. Always visible so the audience can track progress;
+ * fills with the alliance color and pulses once when the objective is earned.
+ * Breach = ≥4 defenses damaged; Capture = tower weakened + all 3 bots scaled/
+ * challenged. Each is worth a ranking point in quals (20/25 pts in playoffs).
+ */
+function ObjectiveBadge({
+  label,
+  achieved,
+  color,
+}: {
+  label: string
+  achieved: boolean
+  color: string
+}) {
+  return (
+    <motion.div
+      animate={achieved ? { scale: [1, 1.12, 1] } : { scale: 1 }}
+      transition={{ type: "spring", stiffness: 360, damping: 16 }}
+      className={cn(
+        "w-28 border px-2.5 py-1 text-sm font-bold tracking-wide uppercase transition-colors duration-300",
+        achieved
+          ? "text-white shadow-lg"
+          : "border-border text-muted-foreground/40"
+      )}
+      style={
+        achieved
+          ? {
+              backgroundColor: color,
+              borderColor: color,
+              boxShadow: `0 0 16px color-mix(in oklch, ${color} 70%, transparent)`,
+            }
+          : undefined
+      }
+    >
+      {label}
+    </motion.div>
   )
 }

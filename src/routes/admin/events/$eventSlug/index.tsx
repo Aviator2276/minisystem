@@ -2,6 +2,17 @@ import { useState } from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -142,23 +153,51 @@ function EventDashboard() {
             className="flex-1"
           />
           {next && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={async () => {
-                try {
-                  await advanceFn({ data: { eventId: event.id, to: next } })
-                  await router.invalidate()
-                } catch (error) {
-                  toast.error(
-                    error instanceof Error ? error.message : String(error)
-                  )
-                }
-              }}
-            >
-              {next.replace("_", " ")}
-              <ArrowRightIcon />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline">
+                  {next.replace("_", " ")}
+                  <ArrowRightIcon />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="capitalize">
+                    Advance to {next.replace("_", " ")}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This moves the event from{" "}
+                    <span className="font-medium text-foreground capitalize">
+                      {event.status.replace("_", " ")}
+                    </span>{" "}
+                    to{" "}
+                    <span className="font-medium text-foreground capitalize">
+                      {next.replace("_", " ")}
+                    </span>
+                    . Event stages only move forward — this cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={async () => {
+                      try {
+                        await advanceFn({
+                          data: { eventId: event.id, to: next },
+                        })
+                        await router.invalidate()
+                      } catch (error) {
+                        toast.error(
+                          error instanceof Error ? error.message : String(error)
+                        )
+                      }
+                    }}
+                  >
+                    Advance
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </CardFooter>
       </Card>
@@ -181,24 +220,26 @@ function EventDashboard() {
             )}
           </CardAction>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
+        <CardContent className="grid grid-cols-2 gap-2 @md/main:grid-cols-3 @2xl/main:grid-cols-4">
           {roster.length === 0 && (
-            <p className="text-sm text-muted-foreground">
+            <p className="col-span-full text-sm text-muted-foreground">
               No teams yet — add them from the roster manager.
             </p>
           )}
           {roster.map((team) => (
-            <Badge
+            <div
               key={team.id}
-              variant="secondary"
-              className="gap-1 py-1 pl-2 text-sm"
+              className="flex items-center gap-2 border border-border bg-secondary/40 px-3 py-2 text-sm"
             >
-              <span className="font-mono">{team.number}</span> {team.name}
+              <span className="font-mono font-bold tabular-nums">
+                {team.number}
+              </span>
+              <span className="truncate">{team.name}</span>
               {event.status === "setup" && (
                 <button
                   type="button"
                   title={`Remove ${team.name}`}
-                  className="ml-1 opacity-50 hover:opacity-100"
+                  className="ml-auto shrink-0 opacity-50 hover:opacity-100"
                   onClick={async () => {
                     await detachFn({
                       data: { eventId: event.id, teamId: team.teamId },
@@ -206,10 +247,10 @@ function EventDashboard() {
                     await router.invalidate()
                   }}
                 >
-                  <XIcon className="size-3" />
+                  <XIcon className="size-3.5" />
                 </button>
               )}
-            </Badge>
+            </div>
           ))}
         </CardContent>
       </Card>
@@ -217,9 +258,6 @@ function EventDashboard() {
       <Card>
         <CardHeader>
           <CardTitle>Quick actions</CardTitle>
-          <CardDescription>
-            Jump straight into running the event
-          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <Button asChild variant="outline" className="justify-start">

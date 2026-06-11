@@ -49,16 +49,27 @@ describe("stronghold reducer", () => {
     expect(before).toEqual(snapshot)
   })
 
-  it("scores auto reach and cross, with cross superseding reach", () => {
+  it("scores auto reach and cross per robot", () => {
     const score = play([
       { type: "REACH", payload: { robotIndex: 0 } },
-      { type: "AUTO_CROSS", payload: { robotIndex: 1, defenseIndex: 0 } },
-      { type: "REACH", payload: { robotIndex: 1 } }, // ignored: robot 1 already crossed
+      { type: "AUTO_CROSS", payload: { robotIndex: 1 } },
     ])
     expect(score.robots[0].auto).toBe("reach")
     expect(score.robots[1].auto).toBe("cross")
     const totals = stronghold.computeTotals(score, empty, "qualification")
     expect(totals.auto).toBe(PointValues.REACH + PointValues.AUTO_CROSS)
+  })
+
+  it("lets a robot switch between reach and cross (last action wins)", () => {
+    const score = play([
+      { type: "AUTO_CROSS", payload: { robotIndex: 1 } },
+      { type: "REACH", payload: { robotIndex: 1 } }, // switch back to reach
+    ])
+    expect(score.robots[1].auto).toBe("reach")
+    // the switched-away cross no longer counts
+    expect(score.crossings.auto).toBe(0)
+    const totals = stronghold.computeTotals(score, empty, "qualification")
+    expect(totals.auto).toBe(PointValues.REACH)
   })
 
   it("scores boulders in all four goals", () => {

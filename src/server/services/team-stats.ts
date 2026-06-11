@@ -91,6 +91,8 @@ export function getTeamDashboard(db: Db, teamId: string, eventId?: string) {
     .where(eq(tables.matches.eventId, event.id))
     .orderBy(asc(tables.matches.scheduledOrder))
     .all()
+    // practice matches are excluded from all team statistics
+    .filter((m) => m.type !== "practice")
 
   // aggregate alliance-level category averages for every team in the event,
   // so the radar can be normalized against the event's best

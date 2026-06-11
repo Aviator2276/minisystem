@@ -11,8 +11,12 @@ import type { AllianceLive } from "@/components/display-scoreboard"
 import { getGame } from "@/games"
 import type { StrongholdScore } from "@/games/stronghold"
 import { useRealtime } from "@/hooks/use-realtime"
+import { RANKINGS_PAGE_SIZE, useRotatingPage } from "@/hooks/use-rotating-page"
 import type { DisplayView } from "@/server/functions/display"
 import { getDisplayBootstrap } from "@/server/functions/display"
+import { ALLIANCE_ORDER } from "@/shared/alliance"
+import type { Alliance } from "@/shared/alliance"
+import { matchLongLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ServerMessage } from "@/shared/realtime-messages"
 import type { EnrichedSelectionState } from "@/server/services/selection"
@@ -23,8 +27,7 @@ export const Route = createFileRoute("/display/$eventSlug")({
     // the router parses `?preview=1` as the number 1 (JSON.parse), so accept
     // every truthy spelling rather than just the string "1"
     const raw = search.preview
-    const preview =
-      raw === true || raw === 1 || raw === "1" || raw === "true"
+    const preview = raw === true || raw === 1 || raw === "1" || raw === "true"
     return { preview: preview ? true : undefined }
   },
   loader: ({ params }) =>
@@ -259,7 +262,7 @@ function DisplayScreen() {
                 <h1 className="text-center text-4xl font-bold">
                   Alliance selection
                 </h1>
-                <SelectionBoard state={selection} dark />
+                <SelectionBoard state={selection} dark showAvailable animated />
               </div>
             )}
             {view === "bracket" && (
@@ -357,9 +360,7 @@ function cachedSide(cache: unknown): AllianceLive {
   return { totals: parsed?.totals ?? null, state: parsed?.state ?? null }
 }
 
-function matchLabel(match: { type: string; number: number }) {
-  return `${match.type === "qualification" ? "Qualification" : "Playoff"} ${match.number}`
-}
+const matchLabel = matchLongLabel
 
 function winnerTeamNumbers(
   match: {
@@ -478,13 +479,15 @@ function ResultsView({
 
   const winColor = decided ? allianceColor(winner) : "var(--card-foreground)"
 
-  const rows = [
-    ["Auto", red?.auto ?? 0, blue?.auto ?? 0],
-    ["Teleop", red?.teleop ?? 0, blue?.teleop ?? 0],
-    ["Endgame", red?.endgame ?? 0, blue?.endgame ?? 0],
-    ["Penalty", red?.penalty ?? 0, blue?.penalty ?? 0],
-    ["Bonus", red?.bonus ?? 0, blue?.bonus ?? 0],
-  ] as const
+  const [leftSide, rightSide] = ALLIANCE_ORDER
+  const totals = { red, blue }
+  const rows: [string, Record<Alliance, number>][] = [
+    ["Auto", { red: red?.auto ?? 0, blue: blue?.auto ?? 0 }],
+    ["Teleop", { red: red?.teleop ?? 0, blue: blue?.teleop ?? 0 }],
+    ["Endgame", { red: red?.endgame ?? 0, blue: blue?.endgame ?? 0 }],
+    ["Penalty", { red: red?.penalty ?? 0, blue: blue?.penalty ?? 0 }],
+    ["Bonus", { red: red?.bonus ?? 0, blue: blue?.bonus ?? 0 }],
+  ]
 
   return (
     <div className="relative h-full">
@@ -570,18 +573,18 @@ function ResultsView({
             </div>
             <div className="flex items-center gap-10 text-7xl font-bold tabular-nums">
               <AnimatedNumber
-                value={red?.total ?? 0}
-                className="text-[color:var(--alliance-red)]"
+                value={totals[leftSide]?.total ?? 0}
+                style={{ color: `var(--alliance-${leftSide})` }}
               />
               <span className="text-3xl text-white/40">vs</span>
               <AnimatedNumber
-                value={blue?.total ?? 0}
-                className="text-[color:var(--alliance-blue)]"
+                value={totals[rightSide]?.total ?? 0}
+                style={{ color: `var(--alliance-${rightSide})` }}
               />
             </div>
             <table className="text-xl">
               <tbody>
-                {rows.map(([name, r, b], i) => (
+                {rows.map(([name, values], i) => (
                   <motion.tr
                     key={name}
                     initial={{ opacity: 0, x: i % 2 === 0 ? -30 : 30 }}
@@ -590,16 +593,16 @@ function ResultsView({
                   >
                     <td
                       className="px-6 text-right tabular-nums"
-                      style={{ color: "var(--alliance-red)" }}
+                      style={{ color: `var(--alliance-${leftSide})` }}
                     >
-                      {r}
+                      {values[leftSide]}
                     </td>
                     <td className="px-6 text-center text-white/60">{name}</td>
                     <td
                       className="px-6 tabular-nums"
-                      style={{ color: "var(--alliance-blue)" }}
+                      style={{ color: `var(--alliance-${rightSide})` }}
                     >
-                      {b}
+                      {values[rightSide]}
                     </td>
                   </motion.tr>
                 ))}
@@ -637,30 +640,41 @@ function LineupView({
   const lineup = (ids: (string | null)[]) =>
     ids.map((id) => (id ? (byId.get(id) ?? null) : null))
 
-  const sides = [
+  const sideConfig: Record<
+    Alliance,
     {
-      side: "red" as const,
+      side: Alliance
+      color: string
+      label: string
+      teams: ReturnType<typeof lineup>
+    }
+  > = {
+    red: {
+      side: "red",
       color: "var(--alliance-red)",
       label: "Red Alliance",
-      slideFrom: -70,
       teams: lineup([
         current?.red1 ?? null,
         current?.red2 ?? null,
         current?.red3 ?? null,
       ]),
     },
-    {
-      side: "blue" as const,
+    blue: {
+      side: "blue",
       color: "var(--alliance-blue)",
       label: "Blue Alliance",
-      slideFrom: 70,
       teams: lineup([
         current?.blue1 ?? null,
         current?.blue2 ?? null,
         current?.blue3 ?? null,
       ]),
     },
-  ]
+  }
+  // left slides in from the left, right from the right
+  const sides = ALLIANCE_ORDER.map((s, idx) => ({
+    ...sideConfig[s],
+    slideFrom: idx === 0 ? -70 : 70,
+  }))
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-8 p-10">
@@ -739,6 +753,12 @@ function RankingsView({
     ties: number
   }[]
 }) {
+  const { page, pageCount, start, end } = useRotatingPage(
+    rankings.length,
+    RANKINGS_PAGE_SIZE
+  )
+  const visible = rankings.slice(start, end)
+
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 p-10">
       <motion.h1
@@ -757,8 +777,8 @@ function RankingsView({
             <th className="px-4 py-1 text-right">W-L-T</th>
           </tr>
         </thead>
-        <tbody>
-          {rankings.slice(0, 10).map((row, i) => (
+        <tbody key={page}>
+          {visible.map((row, i) => (
             <motion.tr
               key={row.teamId}
               className="odd:bg-white/5"
@@ -788,6 +808,26 @@ function RankingsView({
           ))}
         </tbody>
       </table>
+      {pageCount > 1 && (
+        <div className="flex items-center gap-3">
+          <span className="text-lg text-white/50 tabular-nums">
+            Ranks {start + 1}–{Math.min(end, rankings.length)} of{" "}
+            {rankings.length}
+          </span>
+          <div className="flex gap-1.5">
+            {Array.from({ length: pageCount }).map((_, i) => (
+              <div
+                key={i}
+                className="h-2 w-2 rounded-full transition-colors duration-300"
+                style={{
+                  backgroundColor:
+                    i === page ? "white" : "rgb(255 255 255 / 0.25)",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
