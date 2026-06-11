@@ -34,6 +34,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -41,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { useRealtime } from "@/hooks/use-realtime"
 import { useServerClock } from "@/hooks/use-server-clock"
 import type { FieldState } from "@/server/engine/match-engine"
@@ -71,9 +73,11 @@ import {
   selectionRespond,
   selectionUndo,
 } from "@/server/functions/selection"
+import { setFlipAllianceSides } from "@/server/functions/events"
 import type { EnrichedSelectionState } from "@/server/services/selection"
 import type { CachedAllianceScore } from "@/server/services/scoring"
-import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { allianceOrder } from "@/shared/alliance"
+import type { Alliance } from "@/shared/alliance"
 import { matchShortLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ServerMessage } from "@/shared/realtime-messages"
@@ -132,6 +136,10 @@ function ControlPanel() {
   const [judgeStatus, setJudgeStatus] = useState<JudgeStatus>(
     loaded.judgeStatus
   )
+  const [flipSides, setFlipSides] = useState(
+    event.settings.flipAllianceSides ?? false
+  )
+  const order = allianceOrder(flipSides)
 
   const current = matches.find((m) => m.id === field.matchId) ?? null
   const [totals, setTotals] = useState<{ red: Totals; blue: Totals }>({
@@ -183,6 +191,9 @@ function ControlPanel() {
     }
     if (message.type === "judges_update") {
       setJudgeStatus(message.payload as JudgeStatus)
+    }
+    if (message.type === "settings_update") {
+      setFlipSides(message.flipAllianceSides)
     }
     if (message.type === "bracket_update") {
       void router.invalidate()
@@ -350,7 +361,13 @@ function ControlPanel() {
         <PlayoffCard eventId={eventId} bracket={loaded.bracket} />
       )}
 
-      <DisplayCard eventId={eventId} eventSlug={event.slug} view={view} />
+      <DisplayCard
+        eventId={eventId}
+        eventSlug={event.slug}
+        view={view}
+        flipSides={flipSides}
+        onFlipSides={setFlipSides}
+      />
 
       <PublishCard
         eventId={eventId}
@@ -360,10 +377,11 @@ function ControlPanel() {
         redTotal={totals.red?.total ?? null}
         blueTotal={totals.blue?.total ?? null}
         judgeStatus={judgeStatus}
+        order={order}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {ALLIANCE_ORDER.map((side) => (
+        {order.map((side) => (
           <AlliancePoints
             key={side}
             alliance={side}
@@ -396,6 +414,7 @@ function PublishCard({
   redTotal,
   blueTotal,
   judgeStatus,
+  order,
 }: {
   eventId: string
   current: MatchRow | null
@@ -404,6 +423,7 @@ function PublishCard({
   redTotal: number | null
   blueTotal: number | null
   judgeStatus: JudgeStatus
+  order: readonly [Alliance, Alliance]
 }) {
   const postMatchFn = useServerFn(postMatch)
   const setViewFn = useServerFn(setDisplayView)
@@ -463,7 +483,7 @@ function PublishCard({
             </Badge>
           </div>
           <div className="flex items-center gap-2 font-mono text-lg font-bold tabular-nums">
-            {ALLIANCE_ORDER.map((side, idx) => (
+            {order.map((side, idx) => (
               <span key={side} className="flex items-center gap-2">
                 {idx > 0 && (
                   <span className="text-sm text-muted-foreground">–</span>
@@ -675,17 +695,32 @@ function DisplayCard({
   eventId,
   eventSlug,
   view,
+  flipSides,
+  onFlipSides,
 }: {
   eventId: string
   eventSlug: string
   view: DisplayView
+  flipSides: boolean
+  onFlipSides: (flip: boolean) => void
 }) {
   const setViewFn = useServerFn(setDisplayView)
+  const flipFn = useServerFn(setFlipAllianceSides)
 
   async function switchTo(candidate: DisplayView) {
     try {
       await setViewFn({ data: { eventId, view: candidate } })
     } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function toggleFlip(next: boolean) {
+    onFlipSides(next) // optimistic; the settings_update broadcast confirms it
+    try {
+      await flipFn({ data: { eventId, flip: next } })
+    } catch (error) {
+      onFlipSides(!next)
       toast.error(error instanceof Error ? error.message : String(error))
     }
   }
@@ -717,10 +752,25 @@ function DisplayCard({
             <CardTitle>Display screen</CardTitle>
           </div>
 
-          <Badge variant="secondary" className="gap-1.5">
-            <LiveIcon className="size-3.5" />
-            Live: {VIEW_LABELS[view]}
-          </Badge>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="flip-alliance-sides"
+                checked={flipSides}
+                onCheckedChange={(checked) => void toggleFlip(checked)}
+              />
+              <Label
+                htmlFor="flip-alliance-sides"
+                className="text-sm font-normal text-muted-foreground"
+              >
+                Blue on left
+              </Label>
+            </div>
+            <Badge variant="secondary" className="gap-1.5">
+              <LiveIcon className="size-3.5" />
+              Live: {VIEW_LABELS[view]}
+            </Badge>
+          </div>
         </div>
         <div className="flex flex-row items-center justify-center gap-2">
           <div className="flex gap-2">

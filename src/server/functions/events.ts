@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { z } from "zod"
 import { db } from "@/db"
 import { requireAdmin, requireUser } from "@/server/auth/middleware"
+import { publish } from "@/server/realtime/publish"
 import * as events from "@/server/services/events"
 
 export const listEvents = createServerFn()
@@ -53,6 +54,18 @@ export const importRoster = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     events.importRoster(db, data.eventId, data.sourceEventId)
   )
+
+export const setFlipAllianceSides = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .inputValidator(z.object({ eventId: z.string(), flip: z.boolean() }))
+  .handler(({ data }) => {
+    const event = events.setFlipAllianceSides(db, data.eventId, data.flip)
+    publish(data.eventId, "all", {
+      type: "settings_update",
+      flipAllianceSides: data.flip,
+    })
+    return event.settings.flipAllianceSides ?? false
+  })
 
 export const advanceStatus = createServerFn({ method: "POST" })
   .middleware([requireAdmin])

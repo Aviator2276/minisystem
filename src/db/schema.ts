@@ -63,6 +63,8 @@ export type EventStatus =
 
 export interface EventSettings {
   qualRoundsPerTeam?: number
+  /** show blue on the left/top instead of red, everywhere alliances are laid out */
+  flipAllianceSides?: boolean
 }
 
 export const events = sqliteTable("events", {

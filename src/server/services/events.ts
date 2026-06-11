@@ -132,6 +132,16 @@ export function advanceStatus(db: Db, eventId: string, to: EventStatus) {
     .get()
 }
 
+export function setFlipAllianceSides(db: Db, eventId: string, flip: boolean) {
+  const event = getEvent(db, eventId)
+  return db
+    .update(tables.events)
+    .set({ settings: { ...event.settings, flipAllianceSides: flip } })
+    .where(eq(tables.events.id, eventId))
+    .returning()
+    .get()
+}
+
 export function getEventInStatus(
   db: Db,
   eventId: string,

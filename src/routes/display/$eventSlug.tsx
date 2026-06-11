@@ -14,7 +14,7 @@ import { useRealtime } from "@/hooks/use-realtime"
 import { RANKINGS_PAGE_SIZE, useRotatingPage } from "@/hooks/use-rotating-page"
 import type { DisplayView } from "@/server/functions/display"
 import { getDisplayBootstrap } from "@/server/functions/display"
-import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { allianceOrder } from "@/shared/alliance"
 import type { Alliance } from "@/shared/alliance"
 import { matchLongLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
@@ -80,6 +80,7 @@ function DisplayScreen() {
     []
   )
 
+  const order = allianceOrder(boot.event.flipAllianceSides)
   const current = matches.find((m) => m.id === field.matchId) ?? null
   const [live, setLive] = useState<{ red: AllianceLive; blue: AllianceLive }>(
     () => ({
@@ -160,6 +161,9 @@ function DisplayScreen() {
         break
       case "bracket_update":
         void router.invalidate() // bracket rides the loader; refetch it
+        break
+      case "settings_update":
+        void router.invalidate() // alliance order rides the loader too
         break
       case "toast":
         if (
@@ -247,6 +251,7 @@ function DisplayScreen() {
                 blue={live.blue.totals}
                 winner={current.winner}
                 winnerTeams={winnerTeamNumbers(current, boot.teams)}
+                order={order}
               />
             )}
             {view === "lineup" && (
@@ -254,6 +259,7 @@ function DisplayScreen() {
                 label={current ? matchLabel(current) : "Next match"}
                 current={current}
                 teams={boot.teams}
+                order={order}
               />
             )}
             {view === "rankings" && <RankingsView rankings={boot.rankings} />}
@@ -307,6 +313,7 @@ function DisplayScreen() {
                   live={live}
                   field={field}
                   timeline={game.timeline}
+                  order={order}
                 />
               </motion.div>
             )}
@@ -458,12 +465,14 @@ function ResultsView({
   blue,
   winner,
   winnerTeams,
+  order,
 }: {
   label: string
   red: Totals
   blue: Totals
   winner: string | null
   winnerTeams: number[]
+  order: readonly [Alliance, Alliance]
 }) {
   const decided = winner === "red" || winner === "blue"
   // stage 1: winner reveal with confetti; stage 2: full score breakdown
@@ -479,7 +488,7 @@ function ResultsView({
 
   const winColor = decided ? allianceColor(winner) : "var(--card-foreground)"
 
-  const [leftSide, rightSide] = ALLIANCE_ORDER
+  const [leftSide, rightSide] = order
   const totals = { red, blue }
   const rows: [string, Record<Alliance, number>][] = [
     ["Auto", { red: red?.auto ?? 0, blue: blue?.auto ?? 0 }],
@@ -619,6 +628,7 @@ function LineupView({
   label,
   current,
   teams,
+  order,
 }: {
   label: string
   current: {
@@ -635,6 +645,7 @@ function LineupView({
     name: string
     participants: string[]
   }[]
+  order: readonly [Alliance, Alliance]
 }) {
   const byId = new Map(teams.map((t) => [t.teamId, t]))
   const lineup = (ids: (string | null)[]) =>
@@ -671,7 +682,7 @@ function LineupView({
     },
   }
   // left slides in from the left, right from the right
-  const sides = ALLIANCE_ORDER.map((s, idx) => ({
+  const sides = order.map((s, idx) => ({
     ...sideConfig[s],
     slideFrom: idx === 0 ? -70 : 70,
   }))

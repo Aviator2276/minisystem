@@ -24,7 +24,7 @@ import {
   judgeSubmit,
 } from "@/server/functions/judges"
 import type { CachedAllianceScore } from "@/server/services/scoring"
-import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { allianceOrder } from "@/shared/alliance"
 import { matchShortLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ServerMessage } from "@/shared/realtime-messages"
@@ -96,6 +96,9 @@ function JudgePage() {
   )
   const [judgeId] = useState(() => crypto.randomUUID())
   const [submittedMatchId, setSubmittedMatchId] = useState<string | null>(null)
+  const [flipSides, setFlipSides] = useState(
+    event.settings.flipAllianceSides ?? false
+  )
 
   const checkInFn = useServerFn(judgeCheckIn)
   const heartbeatFn = useServerFn(judgeHeartbeat)
@@ -143,6 +146,9 @@ function JudgePage() {
         )
       )
     }
+    if (message.type === "settings_update") {
+      setFlipSides(message.flipAllianceSides)
+    }
   })
 
   // a newly queued match resets local scoring context
@@ -170,7 +176,7 @@ function JudgePage() {
           </p>
         </div>
         <div className="grid w-full max-w-sm grid-cols-2 gap-4">
-          {ALLIANCE_ORDER.map((side) => (
+          {allianceOrder(flipSides).map((side) => (
             <Button
               key={side}
               className="h-32 text-xl font-bold text-white"

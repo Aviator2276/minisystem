@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { TOWER_STRENGTH, opponentTowerStrength } from "@/games/stronghold"
 import type { StrongholdScore } from "@/games/stronghold"
 import { useServerClock } from "@/hooks/use-server-clock"
-import { ALLIANCE_ORDER } from "@/shared/alliance"
+import type { Alliance } from "@/shared/alliance"
 import type { TimelineSegment } from "@/games/types"
 import type { ServerMessage } from "@/shared/realtime-messages"
 
@@ -50,6 +50,7 @@ export function Scoreboard({
   live,
   field,
   timeline,
+  order,
 }: {
   label: string
   teams: { teamId: string; number: number }[]
@@ -64,6 +65,7 @@ export function Scoreboard({
   live: { red: AllianceLive; blue: AllianceLive }
   field: { phase: string; phaseEndsAt: number | null }
   timeline: TimelineSegment[]
+  order: readonly [Alliance, Alliance]
 }) {
   const clock = useServerClock()
   const [, force] = useState(0)
@@ -100,7 +102,7 @@ export function Scoreboard({
 
   const phaseColor = PHASE_COLORS[field.phase] ?? "bg-muted"
   const phaseLabel = PHASE_LABELS[field.phase] ?? field.phase
-  const [leftSide, rightSide] = ALLIANCE_ORDER
+  const [leftSide, rightSide] = order
 
   return (
     <div className="flex items-stretch overflow-hidden border border-border bg-card shadow-2xl">

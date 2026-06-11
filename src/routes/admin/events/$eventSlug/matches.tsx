@@ -56,7 +56,8 @@ import {
   recordScoreEvent,
   undoScoreEvent,
 } from "@/server/functions/scoring"
-import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { allianceOrder } from "@/shared/alliance"
+import type { Alliance } from "@/shared/alliance"
 import { matchShortLabel } from "@/shared/match-format"
 
 export const Route = createFileRoute("/admin/events/$eventSlug/matches")({
@@ -74,6 +75,7 @@ type MatchRow = Awaited<ReturnType<typeof listMatches>>[number]
 
 function MatchesPage() {
   const { event, matches, roster } = Route.useLoaderData()
+  const order = allianceOrder(event.settings.flipAllianceSides)
   const router = useRouter()
   const regenerateFn = useServerFn(regenerateQualSchedule)
   const generateMoreFn = useServerFn(generateMoreQualMatches)
@@ -174,7 +176,7 @@ function MatchesPage() {
         <TableHeader>
           <TableRow>
             <TableHead>Match</TableHead>
-            {ALLIANCE_ORDER.map((side) => (
+            {order.map((side) => (
               <TableHead
                 key={side}
                 className="capitalize"
@@ -201,7 +203,7 @@ function MatchesPage() {
                   )}
                 </span>
               </TableCell>
-              {ALLIANCE_ORDER.map((side) => (
+              {order.map((side) => (
                 <TableCell key={side}>
                   {(side === "red"
                     ? [match.red1, match.red2, match.red3]
@@ -214,7 +216,7 @@ function MatchesPage() {
               ))}
               <TableCell className="font-mono">
                 {match.redPoints !== null
-                  ? `${ALLIANCE_ORDER.map((s) =>
+                  ? `${order.map((s) =>
                       s === "red" ? match.redPoints : match.bluePoints
                     ).join("–")}`
                   : "—"}
@@ -258,6 +260,7 @@ function MatchesPage() {
           match={scoring}
           gameId={event.gameId}
           label={label}
+          order={order}
           onClose={async () => {
             setScoring(null)
             await router.invalidate()
@@ -351,6 +354,7 @@ function MatchesPage() {
         onOpenChange={setCustomOpen}
         eventId={event.id}
         roster={roster}
+        order={order}
         onCreated={async () => {
           setCustomOpen(false)
           await router.invalidate()
@@ -366,12 +370,14 @@ function CustomMatchDialog({
   eventId,
   roster,
   onCreated,
+  order,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   eventId: string
   roster: Awaited<ReturnType<typeof listEventTeams>>
   onCreated: () => void
+  order: readonly [Alliance, Alliance]
 }) {
   const createFn = useServerFn(createCustomMatch)
   const [matchType, setMatchType] = useState<"qualification" | "practice">(
@@ -454,7 +460,7 @@ function CustomMatchDialog({
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          {ALLIANCE_ORDER.map((side) => {
+          {order.map((side) => {
             const value = side === "red" ? red : blue
             const set = side === "red" ? setRed : setBlue
             return (
@@ -510,11 +516,13 @@ function ScoreDialog({
   match,
   gameId,
   label,
+  order,
   onClose,
 }: {
   match: MatchRow
   gameId: string
   label: (teamId: string | null) => string
+  order: readonly [Alliance, Alliance]
   onClose: () => void
 }) {
   const game = getGame(gameId)
@@ -576,7 +584,7 @@ function ScoreDialog({
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-4">
-          {ALLIANCE_ORDER.map((alliance) => (
+          {order.map((alliance) => (
             <div key={alliance} className="flex flex-col gap-2">
               <h3
                 className={`text-xs font-medium ${alliance === "red" ? "text-red-600" : "text-blue-600"}`}

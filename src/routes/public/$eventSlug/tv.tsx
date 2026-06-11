@@ -9,7 +9,8 @@ import {
   useRotatingPage,
 } from "@/hooks/use-rotating-page"
 import { getDisplayBootstrap } from "@/server/functions/display"
-import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { allianceOrder } from "@/shared/alliance"
+import type { Alliance } from "@/shared/alliance"
 import { matchLongLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 
@@ -38,7 +39,11 @@ function TvMode() {
         running: message.phaseEndsAt !== null,
       }))
     }
-    if (message.type === "score_update" || message.type === "bracket_update") {
+    if (
+      message.type === "score_update" ||
+      message.type === "bracket_update" ||
+      message.type === "settings_update"
+    ) {
       void router.invalidate()
     }
   })
@@ -107,6 +112,7 @@ function TvMode() {
                 teams={boot.teams}
                 currentMatchId={field.matchId}
                 running={field.running}
+                order={allianceOrder(boot.event.flipAllianceSides)}
               />
             )}
             {panel === "bracket" && (
@@ -220,6 +226,7 @@ function TvUpNext({
   teams,
   currentMatchId,
   running,
+  order,
 }: {
   matches: {
     id: string
@@ -238,6 +245,7 @@ function TvUpNext({
   teams: { teamId: string; number: number; name: string }[]
   currentMatchId: string | null
   running: boolean
+  order: readonly [Alliance, Alliance]
 }) {
   const numbers = new Map(teams.map((t) => [t.teamId, t.number]))
   const current = matches.find((m) => m.id === currentMatchId) ?? null
@@ -278,7 +286,7 @@ function TvUpNext({
             {label(next)}
           </motion.h1>
           <div className="flex items-center gap-12 text-4xl font-bold tabular-nums">
-            {ALLIANCE_ORDER.map((side, idx) => (
+            {order.map((side, idx) => (
               <span key={side} className="flex items-center gap-12">
                 {idx > 0 && <span className="text-2xl text-white/40">vs</span>}
                 <motion.div
@@ -307,9 +315,9 @@ function TvUpNext({
           transition={{ delay: 0.5 }}
         >
           Last result: {label(lastPosted)} —{" "}
-          {ALLIANCE_ORDER.map((s) =>
-            s === "red" ? lastPosted.redPoints : lastPosted.bluePoints
-          ).join("–")}
+          {order
+            .map((s) => (s === "red" ? lastPosted.redPoints : lastPosted.bluePoints))
+            .join("–")}
         </motion.p>
       )}
     </div>

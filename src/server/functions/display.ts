@@ -56,6 +56,7 @@ export const getDisplayBootstrap = createServerFn()
         gameId: event.gameId,
         status: event.status,
         displayView: event.displayView as DisplayView,
+        flipAllianceSides: event.settings.flipAllianceSides ?? false,
       },
       field: getMatchEngine().getFieldState(event.id),
       matches: matches.listMatches(db, event.id),

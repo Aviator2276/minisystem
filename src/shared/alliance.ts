@@ -1,22 +1,16 @@
 export type Alliance = "red" | "blue"
 
 /**
- * Flips which physical side each alliance is shown on across the whole app
- * (scoreboard, results, lineup, judge, control panel, TV, public, etc.).
+ * Alliances in display order (left→right / top→bottom).
  *
- * Return `true` to put blue on the left / top; `false` (default) keeps red on
- * the left / top. Everything that lays alliances out left-to-right (or
- * top-to-bottom) iterates {@link ALLIANCE_ORDER} rather than hard-coding
- * `["red", "blue"]`. (A function keeps the type `boolean` so the rest of the
- * codebase stays branchable.)
+ * `flip` comes from the event's `settings.flipAllianceSides` (toggled in the
+ * control panel's Display screen card and broadcast as a `settings_update`
+ * realtime message): `true` puts blue on the left / top, `false`/`undefined`
+ * keeps red there. Everything that lays alliances out left-to-right (or
+ * top-to-bottom) iterates this rather than hard-coding `["red", "blue"]`.
  */
-function flipAllianceSides(): boolean {
-  return false
+export function allianceOrder(
+  flip: boolean | undefined
+): readonly [Alliance, Alliance] {
+  return flip ? ["blue", "red"] : ["red", "blue"]
 }
-
-export const FLIP_ALLIANCE_SIDES = flipAllianceSides()
-
-/** Alliances in display order (left→right / top→bottom). */
-export const ALLIANCE_ORDER: readonly [Alliance, Alliance] = FLIP_ALLIANCE_SIDES
-  ? ["blue", "red"]
-  : ["red", "blue"]

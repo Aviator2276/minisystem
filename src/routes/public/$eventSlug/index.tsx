@@ -16,7 +16,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useRealtime } from "@/hooks/use-realtime"
 import { cn } from "@/lib/utils"
 import { getDisplayBootstrap } from "@/server/functions/display"
-import { ALLIANCE_ORDER } from "@/shared/alliance"
+import { allianceOrder } from "@/shared/alliance"
+import type { Alliance } from "@/shared/alliance"
 import { matchShortLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import { TvIcon } from "lucide-react"
@@ -38,7 +39,8 @@ function PublicEventPage() {
       message.type === "score_update" ||
       message.type === "selection_update" ||
       message.type === "bracket_update" ||
-      message.type === "match_state"
+      message.type === "match_state" ||
+      message.type === "settings_update"
     ) {
       void router.invalidate()
     }
@@ -49,6 +51,7 @@ function PublicEventPage() {
     boot.selection.alliances.some((a) => a.captain !== null)
 
   const teamById = new Map(boot.teams.map((t) => [t.teamId, t]))
+  const order = allianceOrder(boot.event.flipAllianceSides)
 
   return (
     <main className="mx-auto flex min-h-svh max-w-4xl flex-col gap-4 p-4 md:p-6">
@@ -88,6 +91,7 @@ function PublicEventPage() {
                 isCurrent={match.id === boot.field.matchId}
                 running={boot.field.running}
                 teamById={teamById}
+                order={order}
               />
             ))
           )}
@@ -195,11 +199,13 @@ function MatchRow({
   isCurrent,
   running,
   teamById,
+  order,
 }: {
   match: PublicMatch
   isCurrent: boolean
   running: boolean
   teamById: Map<string, PublicTeam>
+  order: readonly [Alliance, Alliance]
 }) {
   return (
     <div
@@ -212,7 +218,7 @@ function MatchRow({
         {matchLabel(match)}
       </Badge>
       <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-        {ALLIANCE_ORDER.map((side, idx) => (
+        {order.map((side, idx) => (
           <span key={side} className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {idx > 0 && (
               <span className="text-xs font-medium text-muted-foreground">
@@ -231,7 +237,12 @@ function MatchRow({
           </span>
         ))}
       </div>
-      <MatchStatusBadge match={match} isCurrent={isCurrent} running={running} />
+      <MatchStatusBadge
+        match={match}
+        isCurrent={isCurrent}
+        running={running}
+        order={order}
+      />
     </div>
   )
 }
@@ -278,10 +289,12 @@ function MatchStatusBadge({
   match,
   isCurrent,
   running,
+  order,
 }: {
   match: PublicMatch
   isCurrent: boolean
   running: boolean
+  order: readonly [Alliance, Alliance]
 }) {
   if (isCurrent && running) {
     return <Badge className="bg-emerald-600 text-white">Now playing</Badge>
@@ -292,9 +305,9 @@ function MatchStatusBadge({
   if (match.status === "posted" || match.status === "scored") {
     return (
       <Badge variant="outline" className="font-mono tabular-nums">
-        {ALLIANCE_ORDER.map((s) =>
-          s === "red" ? (match.redPoints ?? 0) : (match.bluePoints ?? 0)
-        ).join("–")}
+        {order
+          .map((s) => (s === "red" ? (match.redPoints ?? 0) : (match.bluePoints ?? 0)))
+          .join("–")}
       </Badge>
     )
   }
