@@ -4,9 +4,12 @@
 import { serve } from "srvx/node"
 import { serveStatic } from "srvx/static"
 import entry from "../dist/server/server.js"
-import { REALTIME_PATH, getWsAdapter, publish } from "../dist/ws/bundle-entry.js"
+import { REALTIME_PATH, bootstrap, getWsAdapter, publish } from "../dist/ws/bundle-entry.js"
 
 const port = Number(process.env.PORT ?? 3000)
+
+// apply migrations + ensure an admin login before accepting traffic
+bootstrap()
 const debugRealtime = process.env.DEBUG_REALTIME === "1"
 
 const server = serve({

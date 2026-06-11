@@ -9,26 +9,26 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as DebugRealtimeRouteImport } from './routes/debug-realtime'
 import { Route as TeamRouteRouteImport } from './routes/team/route'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TeamIndexRouteImport } from './routes/team/index'
+import { Route as LoginIndexRouteImport } from './routes/login/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as LoginTeamRouteImport } from './routes/login/team'
+import { Route as JudgeEventSlugRouteImport } from './routes/judge/$eventSlug'
+import { Route as DisplayEventSlugRouteImport } from './routes/display/$eventSlug'
 import { Route as AdminTeamsRouteImport } from './routes/admin/teams'
+import { Route as PublicEventSlugIndexRouteImport } from './routes/public/$eventSlug/index'
 import { Route as AdminEventsIndexRouteImport } from './routes/admin/events/index'
-import { Route as AdminEventsEventIdRouteRouteImport } from './routes/admin/events/$eventId/route'
-import { Route as AdminEventsEventIdIndexRouteImport } from './routes/admin/events/$eventId/index'
-import { Route as AdminEventsEventIdRankingsRouteImport } from './routes/admin/events/$eventId/rankings'
-import { Route as AdminEventsEventIdMatchesRouteImport } from './routes/admin/events/$eventId/matches'
-import { Route as AdminEventsEventIdControlRouteImport } from './routes/admin/events/$eventId/control'
+import { Route as PublicEventSlugTvRouteImport } from './routes/public/$eventSlug/tv'
+import { Route as AdminEventsEventSlugRouteRouteImport } from './routes/admin/events/$eventSlug/route'
+import { Route as AdminEventsEventSlugIndexRouteImport } from './routes/admin/events/$eventSlug/index'
+import { Route as AdminEventsEventSlugRankingsRouteImport } from './routes/admin/events/$eventSlug/rankings'
+import { Route as AdminEventsEventSlugMatchesRouteImport } from './routes/admin/events/$eventSlug/matches'
+import { Route as AdminEventsEventSlugControlRouteImport } from './routes/admin/events/$eventSlug/control'
 
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DebugRealtimeRoute = DebugRealtimeRouteImport.update({
   id: '/debug-realtime',
   path: '/debug-realtime',
@@ -54,48 +54,80 @@ const TeamIndexRoute = TeamIndexRouteImport.update({
   path: '/',
   getParentRoute: () => TeamRouteRoute,
 } as any)
+const LoginIndexRoute = LoginIndexRouteImport.update({
+  id: '/login/',
+  path: '/login/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AdminRouteRoute,
+} as any)
+const LoginTeamRoute = LoginTeamRouteImport.update({
+  id: '/login/team',
+  path: '/login/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JudgeEventSlugRoute = JudgeEventSlugRouteImport.update({
+  id: '/judge/$eventSlug',
+  path: '/judge/$eventSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DisplayEventSlugRoute = DisplayEventSlugRouteImport.update({
+  id: '/display/$eventSlug',
+  path: '/display/$eventSlug',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AdminTeamsRoute = AdminTeamsRouteImport.update({
   id: '/teams',
   path: '/teams',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const PublicEventSlugIndexRoute = PublicEventSlugIndexRouteImport.update({
+  id: '/public/$eventSlug/',
+  path: '/public/$eventSlug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminEventsIndexRoute = AdminEventsIndexRouteImport.update({
   id: '/events/',
   path: '/events/',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminEventsEventIdRouteRoute = AdminEventsEventIdRouteRouteImport.update({
-  id: '/events/$eventId',
-  path: '/events/$eventId',
-  getParentRoute: () => AdminRouteRoute,
+const PublicEventSlugTvRoute = PublicEventSlugTvRouteImport.update({
+  id: '/public/$eventSlug/tv',
+  path: '/public/$eventSlug/tv',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AdminEventsEventIdIndexRoute = AdminEventsEventIdIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AdminEventsEventIdRouteRoute,
-} as any)
-const AdminEventsEventIdRankingsRoute =
-  AdminEventsEventIdRankingsRouteImport.update({
+const AdminEventsEventSlugRouteRoute =
+  AdminEventsEventSlugRouteRouteImport.update({
+    id: '/events/$eventSlug',
+    path: '/events/$eventSlug',
+    getParentRoute: () => AdminRouteRoute,
+  } as any)
+const AdminEventsEventSlugIndexRoute =
+  AdminEventsEventSlugIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AdminEventsEventSlugRouteRoute,
+  } as any)
+const AdminEventsEventSlugRankingsRoute =
+  AdminEventsEventSlugRankingsRouteImport.update({
     id: '/rankings',
     path: '/rankings',
-    getParentRoute: () => AdminEventsEventIdRouteRoute,
+    getParentRoute: () => AdminEventsEventSlugRouteRoute,
   } as any)
-const AdminEventsEventIdMatchesRoute =
-  AdminEventsEventIdMatchesRouteImport.update({
+const AdminEventsEventSlugMatchesRoute =
+  AdminEventsEventSlugMatchesRouteImport.update({
     id: '/matches',
     path: '/matches',
-    getParentRoute: () => AdminEventsEventIdRouteRoute,
+    getParentRoute: () => AdminEventsEventSlugRouteRoute,
   } as any)
-const AdminEventsEventIdControlRoute =
-  AdminEventsEventIdControlRouteImport.update({
+const AdminEventsEventSlugControlRoute =
+  AdminEventsEventSlugControlRouteImport.update({
     id: '/control',
     path: '/control',
-    getParentRoute: () => AdminEventsEventIdRouteRoute,
+    getParentRoute: () => AdminEventsEventSlugRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -103,29 +135,39 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteRouteWithChildren
   '/team': typeof TeamRouteRouteWithChildren
   '/debug-realtime': typeof DebugRealtimeRoute
-  '/login': typeof LoginRoute
   '/admin/teams': typeof AdminTeamsRoute
+  '/display/$eventSlug': typeof DisplayEventSlugRoute
+  '/judge/$eventSlug': typeof JudgeEventSlugRoute
+  '/login/team': typeof LoginTeamRoute
   '/admin/': typeof AdminIndexRoute
+  '/login/': typeof LoginIndexRoute
   '/team/': typeof TeamIndexRoute
-  '/admin/events/$eventId': typeof AdminEventsEventIdRouteRouteWithChildren
+  '/admin/events/$eventSlug': typeof AdminEventsEventSlugRouteRouteWithChildren
+  '/public/$eventSlug/tv': typeof PublicEventSlugTvRoute
   '/admin/events/': typeof AdminEventsIndexRoute
-  '/admin/events/$eventId/control': typeof AdminEventsEventIdControlRoute
-  '/admin/events/$eventId/matches': typeof AdminEventsEventIdMatchesRoute
-  '/admin/events/$eventId/rankings': typeof AdminEventsEventIdRankingsRoute
-  '/admin/events/$eventId/': typeof AdminEventsEventIdIndexRoute
+  '/public/$eventSlug/': typeof PublicEventSlugIndexRoute
+  '/admin/events/$eventSlug/control': typeof AdminEventsEventSlugControlRoute
+  '/admin/events/$eventSlug/matches': typeof AdminEventsEventSlugMatchesRoute
+  '/admin/events/$eventSlug/rankings': typeof AdminEventsEventSlugRankingsRoute
+  '/admin/events/$eventSlug/': typeof AdminEventsEventSlugIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/debug-realtime': typeof DebugRealtimeRoute
-  '/login': typeof LoginRoute
   '/admin/teams': typeof AdminTeamsRoute
+  '/display/$eventSlug': typeof DisplayEventSlugRoute
+  '/judge/$eventSlug': typeof JudgeEventSlugRoute
+  '/login/team': typeof LoginTeamRoute
   '/admin': typeof AdminIndexRoute
+  '/login': typeof LoginIndexRoute
   '/team': typeof TeamIndexRoute
+  '/public/$eventSlug/tv': typeof PublicEventSlugTvRoute
   '/admin/events': typeof AdminEventsIndexRoute
-  '/admin/events/$eventId/control': typeof AdminEventsEventIdControlRoute
-  '/admin/events/$eventId/matches': typeof AdminEventsEventIdMatchesRoute
-  '/admin/events/$eventId/rankings': typeof AdminEventsEventIdRankingsRoute
-  '/admin/events/$eventId': typeof AdminEventsEventIdIndexRoute
+  '/public/$eventSlug': typeof PublicEventSlugIndexRoute
+  '/admin/events/$eventSlug/control': typeof AdminEventsEventSlugControlRoute
+  '/admin/events/$eventSlug/matches': typeof AdminEventsEventSlugMatchesRoute
+  '/admin/events/$eventSlug/rankings': typeof AdminEventsEventSlugRankingsRoute
+  '/admin/events/$eventSlug': typeof AdminEventsEventSlugIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -133,16 +175,21 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteRouteWithChildren
   '/team': typeof TeamRouteRouteWithChildren
   '/debug-realtime': typeof DebugRealtimeRoute
-  '/login': typeof LoginRoute
   '/admin/teams': typeof AdminTeamsRoute
+  '/display/$eventSlug': typeof DisplayEventSlugRoute
+  '/judge/$eventSlug': typeof JudgeEventSlugRoute
+  '/login/team': typeof LoginTeamRoute
   '/admin/': typeof AdminIndexRoute
+  '/login/': typeof LoginIndexRoute
   '/team/': typeof TeamIndexRoute
-  '/admin/events/$eventId': typeof AdminEventsEventIdRouteRouteWithChildren
+  '/admin/events/$eventSlug': typeof AdminEventsEventSlugRouteRouteWithChildren
+  '/public/$eventSlug/tv': typeof PublicEventSlugTvRoute
   '/admin/events/': typeof AdminEventsIndexRoute
-  '/admin/events/$eventId/control': typeof AdminEventsEventIdControlRoute
-  '/admin/events/$eventId/matches': typeof AdminEventsEventIdMatchesRoute
-  '/admin/events/$eventId/rankings': typeof AdminEventsEventIdRankingsRoute
-  '/admin/events/$eventId/': typeof AdminEventsEventIdIndexRoute
+  '/public/$eventSlug/': typeof PublicEventSlugIndexRoute
+  '/admin/events/$eventSlug/control': typeof AdminEventsEventSlugControlRoute
+  '/admin/events/$eventSlug/matches': typeof AdminEventsEventSlugMatchesRoute
+  '/admin/events/$eventSlug/rankings': typeof AdminEventsEventSlugRankingsRoute
+  '/admin/events/$eventSlug/': typeof AdminEventsEventSlugIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -151,45 +198,60 @@ export interface FileRouteTypes {
     | '/admin'
     | '/team'
     | '/debug-realtime'
-    | '/login'
     | '/admin/teams'
+    | '/display/$eventSlug'
+    | '/judge/$eventSlug'
+    | '/login/team'
     | '/admin/'
+    | '/login/'
     | '/team/'
-    | '/admin/events/$eventId'
+    | '/admin/events/$eventSlug'
+    | '/public/$eventSlug/tv'
     | '/admin/events/'
-    | '/admin/events/$eventId/control'
-    | '/admin/events/$eventId/matches'
-    | '/admin/events/$eventId/rankings'
-    | '/admin/events/$eventId/'
+    | '/public/$eventSlug/'
+    | '/admin/events/$eventSlug/control'
+    | '/admin/events/$eventSlug/matches'
+    | '/admin/events/$eventSlug/rankings'
+    | '/admin/events/$eventSlug/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/debug-realtime'
-    | '/login'
     | '/admin/teams'
+    | '/display/$eventSlug'
+    | '/judge/$eventSlug'
+    | '/login/team'
     | '/admin'
+    | '/login'
     | '/team'
+    | '/public/$eventSlug/tv'
     | '/admin/events'
-    | '/admin/events/$eventId/control'
-    | '/admin/events/$eventId/matches'
-    | '/admin/events/$eventId/rankings'
-    | '/admin/events/$eventId'
+    | '/public/$eventSlug'
+    | '/admin/events/$eventSlug/control'
+    | '/admin/events/$eventSlug/matches'
+    | '/admin/events/$eventSlug/rankings'
+    | '/admin/events/$eventSlug'
   id:
     | '__root__'
     | '/'
     | '/admin'
     | '/team'
     | '/debug-realtime'
-    | '/login'
     | '/admin/teams'
+    | '/display/$eventSlug'
+    | '/judge/$eventSlug'
+    | '/login/team'
     | '/admin/'
+    | '/login/'
     | '/team/'
-    | '/admin/events/$eventId'
+    | '/admin/events/$eventSlug'
+    | '/public/$eventSlug/tv'
     | '/admin/events/'
-    | '/admin/events/$eventId/control'
-    | '/admin/events/$eventId/matches'
-    | '/admin/events/$eventId/rankings'
-    | '/admin/events/$eventId/'
+    | '/public/$eventSlug/'
+    | '/admin/events/$eventSlug/control'
+    | '/admin/events/$eventSlug/matches'
+    | '/admin/events/$eventSlug/rankings'
+    | '/admin/events/$eventSlug/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -197,18 +259,16 @@ export interface RootRouteChildren {
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
   TeamRouteRoute: typeof TeamRouteRouteWithChildren
   DebugRealtimeRoute: typeof DebugRealtimeRoute
-  LoginRoute: typeof LoginRoute
+  DisplayEventSlugRoute: typeof DisplayEventSlugRoute
+  JudgeEventSlugRoute: typeof JudgeEventSlugRoute
+  LoginTeamRoute: typeof LoginTeamRoute
+  LoginIndexRoute: typeof LoginIndexRoute
+  PublicEventSlugTvRoute: typeof PublicEventSlugTvRoute
+  PublicEventSlugIndexRoute: typeof PublicEventSlugIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/debug-realtime': {
       id: '/debug-realtime'
       path: '/debug-realtime'
@@ -244,12 +304,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamIndexRouteImport
       parentRoute: typeof TeamRouteRoute
     }
+    '/login/': {
+      id: '/login/'
+      path: '/login'
+      fullPath: '/login/'
+      preLoaderRoute: typeof LoginIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/': {
       id: '/admin/'
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRouteRoute
+    }
+    '/login/team': {
+      id: '/login/team'
+      path: '/login/team'
+      fullPath: '/login/team'
+      preLoaderRoute: typeof LoginTeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/judge/$eventSlug': {
+      id: '/judge/$eventSlug'
+      path: '/judge/$eventSlug'
+      fullPath: '/judge/$eventSlug'
+      preLoaderRoute: typeof JudgeEventSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/display/$eventSlug': {
+      id: '/display/$eventSlug'
+      path: '/display/$eventSlug'
+      fullPath: '/display/$eventSlug'
+      preLoaderRoute: typeof DisplayEventSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/admin/teams': {
       id: '/admin/teams'
@@ -258,6 +346,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTeamsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/public/$eventSlug/': {
+      id: '/public/$eventSlug/'
+      path: '/public/$eventSlug'
+      fullPath: '/public/$eventSlug/'
+      preLoaderRoute: typeof PublicEventSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/events/': {
       id: '/admin/events/'
       path: '/events'
@@ -265,75 +360,82 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminEventsIndexRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/admin/events/$eventId': {
-      id: '/admin/events/$eventId'
-      path: '/events/$eventId'
-      fullPath: '/admin/events/$eventId'
-      preLoaderRoute: typeof AdminEventsEventIdRouteRouteImport
+    '/public/$eventSlug/tv': {
+      id: '/public/$eventSlug/tv'
+      path: '/public/$eventSlug/tv'
+      fullPath: '/public/$eventSlug/tv'
+      preLoaderRoute: typeof PublicEventSlugTvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/events/$eventSlug': {
+      id: '/admin/events/$eventSlug'
+      path: '/events/$eventSlug'
+      fullPath: '/admin/events/$eventSlug'
+      preLoaderRoute: typeof AdminEventsEventSlugRouteRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/admin/events/$eventId/': {
-      id: '/admin/events/$eventId/'
+    '/admin/events/$eventSlug/': {
+      id: '/admin/events/$eventSlug/'
       path: '/'
-      fullPath: '/admin/events/$eventId/'
-      preLoaderRoute: typeof AdminEventsEventIdIndexRouteImport
-      parentRoute: typeof AdminEventsEventIdRouteRoute
+      fullPath: '/admin/events/$eventSlug/'
+      preLoaderRoute: typeof AdminEventsEventSlugIndexRouteImport
+      parentRoute: typeof AdminEventsEventSlugRouteRoute
     }
-    '/admin/events/$eventId/rankings': {
-      id: '/admin/events/$eventId/rankings'
+    '/admin/events/$eventSlug/rankings': {
+      id: '/admin/events/$eventSlug/rankings'
       path: '/rankings'
-      fullPath: '/admin/events/$eventId/rankings'
-      preLoaderRoute: typeof AdminEventsEventIdRankingsRouteImport
-      parentRoute: typeof AdminEventsEventIdRouteRoute
+      fullPath: '/admin/events/$eventSlug/rankings'
+      preLoaderRoute: typeof AdminEventsEventSlugRankingsRouteImport
+      parentRoute: typeof AdminEventsEventSlugRouteRoute
     }
-    '/admin/events/$eventId/matches': {
-      id: '/admin/events/$eventId/matches'
+    '/admin/events/$eventSlug/matches': {
+      id: '/admin/events/$eventSlug/matches'
       path: '/matches'
-      fullPath: '/admin/events/$eventId/matches'
-      preLoaderRoute: typeof AdminEventsEventIdMatchesRouteImport
-      parentRoute: typeof AdminEventsEventIdRouteRoute
+      fullPath: '/admin/events/$eventSlug/matches'
+      preLoaderRoute: typeof AdminEventsEventSlugMatchesRouteImport
+      parentRoute: typeof AdminEventsEventSlugRouteRoute
     }
-    '/admin/events/$eventId/control': {
-      id: '/admin/events/$eventId/control'
+    '/admin/events/$eventSlug/control': {
+      id: '/admin/events/$eventSlug/control'
       path: '/control'
-      fullPath: '/admin/events/$eventId/control'
-      preLoaderRoute: typeof AdminEventsEventIdControlRouteImport
-      parentRoute: typeof AdminEventsEventIdRouteRoute
+      fullPath: '/admin/events/$eventSlug/control'
+      preLoaderRoute: typeof AdminEventsEventSlugControlRouteImport
+      parentRoute: typeof AdminEventsEventSlugRouteRoute
     }
   }
 }
 
-interface AdminEventsEventIdRouteRouteChildren {
-  AdminEventsEventIdControlRoute: typeof AdminEventsEventIdControlRoute
-  AdminEventsEventIdMatchesRoute: typeof AdminEventsEventIdMatchesRoute
-  AdminEventsEventIdRankingsRoute: typeof AdminEventsEventIdRankingsRoute
-  AdminEventsEventIdIndexRoute: typeof AdminEventsEventIdIndexRoute
+interface AdminEventsEventSlugRouteRouteChildren {
+  AdminEventsEventSlugControlRoute: typeof AdminEventsEventSlugControlRoute
+  AdminEventsEventSlugMatchesRoute: typeof AdminEventsEventSlugMatchesRoute
+  AdminEventsEventSlugRankingsRoute: typeof AdminEventsEventSlugRankingsRoute
+  AdminEventsEventSlugIndexRoute: typeof AdminEventsEventSlugIndexRoute
 }
 
-const AdminEventsEventIdRouteRouteChildren: AdminEventsEventIdRouteRouteChildren =
+const AdminEventsEventSlugRouteRouteChildren: AdminEventsEventSlugRouteRouteChildren =
   {
-    AdminEventsEventIdControlRoute: AdminEventsEventIdControlRoute,
-    AdminEventsEventIdMatchesRoute: AdminEventsEventIdMatchesRoute,
-    AdminEventsEventIdRankingsRoute: AdminEventsEventIdRankingsRoute,
-    AdminEventsEventIdIndexRoute: AdminEventsEventIdIndexRoute,
+    AdminEventsEventSlugControlRoute: AdminEventsEventSlugControlRoute,
+    AdminEventsEventSlugMatchesRoute: AdminEventsEventSlugMatchesRoute,
+    AdminEventsEventSlugRankingsRoute: AdminEventsEventSlugRankingsRoute,
+    AdminEventsEventSlugIndexRoute: AdminEventsEventSlugIndexRoute,
   }
 
-const AdminEventsEventIdRouteRouteWithChildren =
-  AdminEventsEventIdRouteRoute._addFileChildren(
-    AdminEventsEventIdRouteRouteChildren,
+const AdminEventsEventSlugRouteRouteWithChildren =
+  AdminEventsEventSlugRouteRoute._addFileChildren(
+    AdminEventsEventSlugRouteRouteChildren,
   )
 
 interface AdminRouteRouteChildren {
   AdminTeamsRoute: typeof AdminTeamsRoute
   AdminIndexRoute: typeof AdminIndexRoute
-  AdminEventsEventIdRouteRoute: typeof AdminEventsEventIdRouteRouteWithChildren
+  AdminEventsEventSlugRouteRoute: typeof AdminEventsEventSlugRouteRouteWithChildren
   AdminEventsIndexRoute: typeof AdminEventsIndexRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminTeamsRoute: AdminTeamsRoute,
   AdminIndexRoute: AdminIndexRoute,
-  AdminEventsEventIdRouteRoute: AdminEventsEventIdRouteRouteWithChildren,
+  AdminEventsEventSlugRouteRoute: AdminEventsEventSlugRouteRouteWithChildren,
   AdminEventsIndexRoute: AdminEventsIndexRoute,
 }
 
@@ -358,7 +460,12 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRouteRoute: AdminRouteRouteWithChildren,
   TeamRouteRoute: TeamRouteRouteWithChildren,
   DebugRealtimeRoute: DebugRealtimeRoute,
-  LoginRoute: LoginRoute,
+  DisplayEventSlugRoute: DisplayEventSlugRoute,
+  JudgeEventSlugRoute: JudgeEventSlugRoute,
+  LoginTeamRoute: LoginTeamRoute,
+  LoginIndexRoute: LoginIndexRoute,
+  PublicEventSlugTvRoute: PublicEventSlugTvRoute,
+  PublicEventSlugIndexRoute: PublicEventSlugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

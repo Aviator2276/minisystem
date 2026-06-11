@@ -78,22 +78,26 @@ describe("match engine", () => {
     expect(event?.currentMatchId).toBe(matchId)
   })
 
-  it("runs the full Stronghold phase chain at 0/15/120/150s", () => {
+  it("runs the Stronghold timeline: auto, buzzer+pause, teleop, endgame cue", () => {
     engine.setCurrentMatch(eventId, matchId)
     engine.playMatch(eventId)
 
     expect(lastState()?.phase).toBe("auto")
     expect(messagesOf("sound").at(-1)).toMatchObject({ cue: "match-start" })
 
-    vi.advanceTimersByTime(15_000)
+    vi.advanceTimersByTime(15_000) // t = 15s — auto ends, buzzer + pause
+    expect(lastState()?.phase).toBe("pause")
+    expect(messagesOf("sound").at(-1)).toMatchObject({ cue: "match-end" })
+
+    vi.advanceTimersByTime(3_500) // t = 18.5s — teleop starts
     expect(lastState()?.phase).toBe("teleop")
     expect(messagesOf("sound").at(-1)).toMatchObject({ cue: "teleop-start" })
 
-    vi.advanceTimersByTime(105_000) // t = 120s
-    expect(lastState()?.phase).toBe("endgame")
+    vi.advanceTimersByTime(105_000) // t = 123.5s — endgame warning, no transition
+    expect(lastState()?.phase).toBe("teleop")
     expect(messagesOf("sound").at(-1)).toMatchObject({ cue: "endgame-start" })
 
-    vi.advanceTimersByTime(30_000) // t = 150s
+    vi.advanceTimersByTime(30_000) // t = 153.5s — match ends
     expect(lastState()?.phase).toBe("post_match")
     expect(messagesOf("sound").at(-1)).toMatchObject({ cue: "match-end" })
     expect(engine.getFieldState(eventId).running).toBe(false)
@@ -188,10 +192,10 @@ describe("match engine", () => {
     const state = engine.getFieldState(eventId)
     expect(state).toMatchObject({ matchId, phase: "teleop", running: true })
 
-    // remaining transitions still fire at the original absolute times
-    vi.advanceTimersByTime(100_000) // t = 120s
-    expect(lastState()?.phase).toBe("endgame")
-    vi.advanceTimersByTime(30_000) // t = 150s
+    // remaining transitions/cues still fire at the original absolute times
+    vi.advanceTimersByTime(103_500) // t = 123.5s — endgame warning cue
+    expect(messagesOf("sound").at(-1)).toMatchObject({ cue: "endgame-start" })
+    vi.advanceTimersByTime(30_000) // t = 153.5s
     expect(lastState()?.phase).toBe("post_match")
   })
 
@@ -223,10 +227,9 @@ describe("match engine", () => {
     expect(() => engine.replayMatch(eventId)).toThrow(/posted/i)
   })
 
-  it("safe to enter publishes a timed toast and sound", () => {
+  it("safe to enter publishes a timed toast", () => {
     engine.safeToEnter(eventId)
     expect(messagesOf("toast").at(-1)).toMatchObject({ durationMs: 8000 })
-    expect(messagesOf("sound").at(-1)).toMatchObject({ cue: "safe-to-enter" })
     engine.noEntry(eventId)
     expect(messagesOf("toast").at(-1)).toMatchObject({
       durationMs: null,

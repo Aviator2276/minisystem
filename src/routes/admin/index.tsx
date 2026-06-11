@@ -69,8 +69,8 @@ function AdminDashboard() {
                 <TableRow key={event.id}>
                   <TableCell>
                     <Link
-                      to="/admin/events/$eventId"
-                      params={{ eventId: event.id }}
+                      to="/admin/events/$eventSlug"
+                      params={{ eventSlug: event.slug }}
                       className="font-medium hover:underline"
                     >
                       {event.name}

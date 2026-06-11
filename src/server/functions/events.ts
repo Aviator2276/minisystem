@@ -13,6 +13,16 @@ export const getEvent = createServerFn()
   .inputValidator(z.object({ eventId: z.string() }))
   .handler(({ data }) => events.getEvent(db, data.eventId))
 
+export const getEventBySlug = createServerFn()
+  .middleware([requireUser])
+  .inputValidator(z.object({ slug: z.string() }))
+  .handler(({ data }) => events.getEventBySlug(db, data.slug))
+
+export const deleteEvent = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .inputValidator(z.object({ eventId: z.string() }))
+  .handler(({ data }) => events.deleteEvent(db, data.eventId))
+
 export const createEvent = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
   .inputValidator(

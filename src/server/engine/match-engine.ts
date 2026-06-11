@@ -106,7 +106,6 @@ export class MatchEngine {
     s.phase = "safe_to_enter"
     s.phaseEndsAt = null
     this.broadcastState(eventId)
-    this.publishFn(eventId, "all", { type: "sound", cue: "safe-to-enter" })
     this.publishFn(eventId, "all", {
       type: "toast",
       message: "Safe to enter the field",
@@ -135,9 +134,9 @@ export class MatchEngine {
     s.running = true
     this.scheduleTransitions(eventId, game, startedAt)
 
-    const [first] = game.phases as [
-      (typeof game.phases)[number],
-      ...typeof game.phases,
+    const [first] = game.timeline as [
+      (typeof game.timeline)[number],
+      ...typeof game.timeline,
     ]
     this.enterPhase(eventId, first.id, startedAt + first.endMs, first.sound)
     return this.getFieldState(eventId)
@@ -224,7 +223,7 @@ export class MatchEngine {
         const elapsed = Date.now() - startedAt
         if (elapsed < game.matchLengthMs) {
           s.running = true
-          const current = game.phases.find(
+          const current = game.timeline.find(
             (p) => elapsed >= p.startMs && elapsed < p.endMs
           )
           s.phase = current?.id ?? "no_entry"
@@ -256,19 +255,31 @@ export class MatchEngine {
     const s = this.ensure(eventId)
     this.clearTimers(s)
     const now = Date.now()
-    for (const phase of game.phases) {
-      const at = startedAt + phase.startMs
-      if (at <= now) continue // first phase entered directly; past phases skipped on recovery
-      s.timers.push(
-        setTimeout(() => {
-          this.enterPhase(
-            eventId,
-            phase.id,
-            startedAt + phase.endMs,
-            phase.sound
-          )
-        }, at - now)
-      )
+    for (const segment of game.timeline) {
+      const at = startedAt + segment.startMs
+      // first segment entered directly; past ones skipped on recovery
+      if (at > now) {
+        s.timers.push(
+          setTimeout(() => {
+            this.enterPhase(
+              eventId,
+              segment.id,
+              startedAt + segment.endMs,
+              segment.sound
+            )
+          }, at - now)
+        )
+      }
+      // mid-segment cues (e.g. endgame warning) play a sound without a transition
+      for (const cue of segment.cues ?? []) {
+        const cueAt = startedAt + cue.atMs
+        if (cueAt <= now) continue
+        s.timers.push(
+          setTimeout(() => {
+            this.publishFn(eventId, "all", { type: "sound", cue: cue.sound })
+          }, cueAt - now)
+        )
+      }
     }
     s.timers.push(
       setTimeout(

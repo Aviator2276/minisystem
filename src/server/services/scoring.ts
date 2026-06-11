@@ -131,6 +131,9 @@ export function postMatch(db: Db, matchId: string) {
     const game = getGame(getEvent(tx, match.eventId).gameId)
     const red = match.redPoints ?? 0
     const blue = match.bluePoints ?? 0
+    if (match.type === "playoff" && red === blue) {
+      throw new Error("Playoff matches cannot end in a tie — replay the match")
+    }
     return tx
       .update(tables.matches)
       .set({

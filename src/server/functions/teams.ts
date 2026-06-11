@@ -43,5 +43,12 @@ export const removeParticipant = createServerFn({ method: "POST" })
 
 export const provisionTeamAccount = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(z.object({ teamId: z.string() }))
-  .handler(({ data }) => teams.provisionTeamAccount(db, data.teamId))
+  .inputValidator(
+    z.object({
+      teamId: z.string(),
+      password: z.string().min(4).max(64).optional(),
+    })
+  )
+  .handler(({ data }) =>
+    teams.provisionTeamAccount(db, data.teamId, data.password)
+  )

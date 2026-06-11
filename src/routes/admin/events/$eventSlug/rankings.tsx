@@ -9,8 +9,8 @@ import {
 } from "@/components/ui/table"
 import { getRankings } from "@/server/functions/rankings"
 
-export const Route = createFileRoute("/admin/events/$eventId/rankings")({
-  loader: ({ params }) => getRankings({ data: { eventId: params.eventId } }),
+export const Route = createFileRoute("/admin/events/$eventSlug/rankings")({
+  loader: ({ context }) => getRankings({ data: { eventId: context.event.id } }),
   component: RankingsPage,
 })
 

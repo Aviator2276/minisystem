@@ -1,8 +1,28 @@
+import { useState } from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -13,7 +33,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { createEvent, listEvents } from "@/server/functions/events"
+import { createEvent, deleteEvent, listEvents } from "@/server/functions/events"
+import { PlusIcon, Trash2Icon } from "lucide-react"
 
 export const Route = createFileRoute("/admin/events/")({
   loader: () => listEvents(),
@@ -24,39 +45,65 @@ function EventsPage() {
   const events = Route.useLoaderData()
   const router = useRouter()
   const createFn = useServerFn(createEvent)
+  const deleteFn = useServerFn(deleteEvent)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-sm font-medium">Events</h1>
-
-      <form
-        className="flex items-end gap-2"
-        onSubmit={async (e) => {
-          e.preventDefault()
-          const formElement = e.currentTarget
-          const form = new FormData(formElement)
-          try {
-            await createFn({ data: { name: String(form.get("name")) } })
-            formElement.reset()
-            await router.invalidate()
-          } catch {
-            toast.error("Could not create event — is the name unique?")
-          }
-        }}
-      >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="name">Name</Label>
-          <Input id="name" name="name" required className="w-64" />
-        </div>
-        <Button type="submit">Create event</Button>
-      </form>
+      <div className="flex items-center justify-between">
+        <h1 className="text-sm font-medium">Events</h1>
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm">
+              <PlusIcon />
+              New event
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Create event</DialogTitle>
+              <DialogDescription>
+                The event URL is derived from its name (e.g. “Spring Open” →{" "}
+                <span className="font-mono">/events/spring-open</span>).
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              className="flex flex-col gap-4"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const form = new FormData(e.currentTarget)
+                try {
+                  await createFn({ data: { name: String(form.get("name")) } })
+                  setCreateOpen(false)
+                  await router.invalidate()
+                } catch {
+                  toast.error("Could not create event — is the name unique?")
+                }
+              }}
+            >
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="name">Name</Label>
+                <Input id="name" name="name" required autoFocus />
+              </div>
+              <DialogFooter>
+                <Button type="submit">Create</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
 
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
-            <TableHead>Slug</TableHead>
+            <TableHead>URL</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -64,27 +111,70 @@ function EventsPage() {
             <TableRow key={event.id}>
               <TableCell>
                 <Link
-                  to="/admin/events/$eventId"
-                  params={{ eventId: event.id }}
+                  to="/admin/events/$eventSlug"
+                  params={{ eventSlug: event.slug }}
                   className="font-medium hover:underline"
                 >
                   {event.name}
                 </Link>
               </TableCell>
-              <TableCell className="font-mono">{event.slug}</TableCell>
+              <TableCell className="font-mono text-muted-foreground">
+                /{event.slug}
+              </TableCell>
               <TableCell>
                 <Badge
                   variant={
                     event.status === "complete" ? "secondary" : "default"
                   }
                 >
-                  {event.status}
+                  {event.status.replace("_", " ")}
                 </Badge>
+              </TableCell>
+              <TableCell className="text-right">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title={`Delete ${event.name}`}
+                  onClick={() =>
+                    setPendingDelete({ id: event.id, name: event.name })
+                  }
+                >
+                  <Trash2Icon className="size-4" />
+                </Button>
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {pendingDelete?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the event with its roster, schedule, and
+              every recorded score. Teams themselves are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!pendingDelete) return
+                await deleteFn({ data: { eventId: pendingDelete.id } })
+                setPendingDelete(null)
+                toast.success("Event deleted")
+                await router.invalidate()
+              }}
+            >
+              Delete event
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

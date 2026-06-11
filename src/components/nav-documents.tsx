@@ -28,6 +28,7 @@ export function NavEvents({
 }: {
   events: {
     id: string
+    slug: string
     name: string
     status: string
   }[]
@@ -41,7 +42,10 @@ export function NavEvents({
         {events.map((event) => (
           <SidebarMenuItem key={event.id}>
             <SidebarMenuButton asChild>
-              <Link to="/admin/events/$eventId" params={{ eventId: event.id }}>
+              <Link
+                to="/admin/events/$eventSlug"
+                params={{ eventSlug: event.slug }}
+              >
                 <TrophyIcon />
                 <span>{event.name}</span>
                 <Badge variant="outline" className="ml-auto text-[0.6rem]">
@@ -53,21 +57,21 @@ export function NavEvents({
               <DropdownMenuTrigger asChild>
                 <SidebarMenuAction
                   showOnHover
-                  className="rounded-sm data-[state=open]:bg-accent"
+                  className="rounded-none data-[state=open]:bg-accent"
                 >
                   <MoreHorizontalIcon />
                   <span className="sr-only">More</span>
                 </SidebarMenuAction>
               </DropdownMenuTrigger>
               <DropdownMenuContent
-                className="w-36 rounded-lg"
+                className="w-36"
                 side={isMobile ? "bottom" : "right"}
                 align={isMobile ? "end" : "start"}
               >
                 <DropdownMenuItem asChild>
                   <Link
-                    to="/admin/events/$eventId"
-                    params={{ eventId: event.id }}
+                    to="/admin/events/$eventSlug"
+                    params={{ eventSlug: event.slug }}
                   >
                     <UsersIcon />
                     <span>Roster</span>
@@ -75,8 +79,8 @@ export function NavEvents({
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link
-                    to="/admin/events/$eventId/matches"
-                    params={{ eventId: event.id }}
+                    to="/admin/events/$eventSlug/matches"
+                    params={{ eventSlug: event.slug }}
                   >
                     <ListChecksIcon />
                     <span>Matches</span>
@@ -84,8 +88,8 @@ export function NavEvents({
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link
-                    to="/admin/events/$eventId/rankings"
-                    params={{ eventId: event.id }}
+                    to="/admin/events/$eventSlug/rankings"
+                    params={{ eventSlug: event.slug }}
                   >
                     <BarChart3Icon />
                     <span>Rankings</span>

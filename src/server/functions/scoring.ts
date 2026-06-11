@@ -2,8 +2,9 @@ import { createServerFn } from "@tanstack/react-start"
 import { z } from "zod"
 import { db } from "@/db"
 import { requireUser, requireAdmin } from "@/server/auth/middleware"
+import { resolveBracket } from "@/server/playoffs/advance"
 import * as scoring from "@/server/services/scoring"
-import { publishScoreUpdate } from "@/server/realtime/publish"
+import { publish, publishScoreUpdate } from "@/server/realtime/publish"
 
 const recordSchema = z.object({
   matchId: z.string(),
@@ -39,6 +40,10 @@ export const postMatch = createServerFn({ method: "POST" })
   .handler(({ data }) => {
     const match = scoring.postMatch(db, data.matchId)
     publishScoreUpdate(db, data.matchId)
+    if (match.type === "playoff") {
+      resolveBracket(db, match.eventId)
+      publish(match.eventId, "all", { type: "bracket_update", payload: null })
+    }
     return match
   })
 

@@ -226,11 +226,26 @@ function compareRankings(a: RankingInput, b: RankingInput): number {
 export const stronghold: GameDefinition<StrongholdScore> = {
   id: "stronghold2016",
   name: "FIRST Stronghold",
-  matchLengthMs: 150_000,
+  matchLengthMs: 153_500,
+  // Scoring windows the judge groups buttons by (see timeline for the clock).
   phases: [
+    { id: "auto", startMs: 0, endMs: 15_000 },
+    { id: "teleop", startMs: 15_000, endMs: 120_000 },
+    { id: "endgame", startMs: 120_000, endMs: 150_000 },
+  ],
+  // Clock/sound timeline. Endgame is folded into one continuous teleop segment
+  // so the display timer never resets; the endgame buzzer fires as a cue 30s
+  // before teleop ends. A short pause after auto holds for the buzzer's length.
+  timeline: [
     { id: "auto", startMs: 0, endMs: 15_000, sound: "match-start" },
-    { id: "teleop", startMs: 15_000, endMs: 120_000, sound: "teleop-start" },
-    { id: "endgame", startMs: 120_000, endMs: 150_000, sound: "endgame-start" },
+    { id: "pause", startMs: 15_000, endMs: 18_500, sound: "match-end" },
+    {
+      id: "teleop",
+      startMs: 18_500,
+      endMs: 153_500,
+      sound: "teleop-start",
+      cues: [{ atMs: 123_500, sound: "endgame-start" }],
+    },
   ],
   sounds: {
     "match-start": "/sounds/match-start.wav",
@@ -238,7 +253,7 @@ export const stronghold: GameDefinition<StrongholdScore> = {
     "endgame-start": "/sounds/endgame-start.wav",
     "match-end": "/sounds/match-end.wav",
     "field-fault": "/sounds/field-fault.wav",
-    "safe-to-enter": "/sounds/safe-to-enter.wav",
+    results: "/sounds/results.wav",
   },
   scoreEventTypes: {
     REACH: {

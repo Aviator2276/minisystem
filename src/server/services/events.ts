@@ -54,6 +54,10 @@ export function createEvent(db: Db, input: { name: string; slug?: string }) {
     .get()
 }
 
+export function deleteEvent(db: Db, eventId: string) {
+  db.delete(tables.events).where(eq(tables.events.id, eventId)).run()
+}
+
 export function listEventTeams(db: Db, eventId: string) {
   return db
     .select({

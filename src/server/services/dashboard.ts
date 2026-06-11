@@ -10,6 +10,7 @@ export interface AdminDashboard {
   scoreEventCount: number
   events: Array<{
     id: string
+    slug: string
     name: string
     status: string
     teamCount: number
@@ -52,6 +53,7 @@ export function getAdminDashboard(db: Db): AdminDashboard {
         .all()
       return {
         id: event.id,
+        slug: event.slug,
         name: event.name,
         status: event.status,
         teamCount: eventTeamCount,

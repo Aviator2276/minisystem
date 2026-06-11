@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/server/functions/auth"
 import { listEvents } from "@/server/functions/events"
@@ -21,6 +22,7 @@ function AdminLayout() {
 
   return (
     <SidebarProvider
+      className="h-svh overflow-hidden"
       style={
         {
           "--sidebar-width": "calc(var(--spacing) * 72)",
@@ -31,13 +33,11 @@ function AdminLayout() {
       <AppSidebar variant="inset" events={events} user={user} />
       <SidebarInset>
         <SiteHeader title="MiniSystem" />
-        <div className="flex flex-1 flex-col">
-          <div className="@container/main flex flex-1 flex-col gap-2 py-4 md:py-6">
-            <div className="px-4 lg:px-6">
-              <Outlet />
-            </div>
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="@container/main flex flex-col gap-2 px-4 py-4 md:py-6 lg:px-6">
+            <Outlet />
           </div>
-        </div>
+        </ScrollArea>
       </SidebarInset>
     </SidebarProvider>
   )

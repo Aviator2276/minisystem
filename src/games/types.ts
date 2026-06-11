@@ -7,13 +7,40 @@ import type {
 
 export type GamePhaseId = "auto" | "teleop" | "endgame"
 
+/**
+ * Scoring taxonomy: the windows the judge UI groups score buttons by. Distinct
+ * from the engine {@link TimelineSegment} that drives the clock and sounds.
+ */
 export interface GamePhase {
   id: GamePhaseId
   /** offset from match start */
   startMs: number
   endMs: number
-  /** sound cue id played at phase start */
+}
+
+/** A sound played at a sub-segment offset without resetting the clock/phase. */
+export interface TimelineCue {
+  /** offset from match start at which the cue fires */
+  atMs: number
+  sound: string
+}
+
+/**
+ * Engine timeline segment — drives the field clock, phase transitions, sounds,
+ * and the display countdown. Distinct from {@link GamePhase}: e.g. Stronghold's
+ * endgame is part of one continuous `teleop` segment here, with the endgame
+ * warning delivered as a {@link TimelineCue} so the timer never resets.
+ */
+export interface TimelineSegment {
+  /** becomes the broadcast `field.phase` while this segment is active */
+  id: string
+  /** offset from match start */
+  startMs: number
+  endMs: number
+  /** sound cue id played when the segment begins */
   sound?: string
+  /** sounds played mid-segment without changing the phase or clock */
+  cues?: TimelineCue[]
 }
 
 export interface ScoreEventTypeDef {
@@ -38,7 +65,10 @@ export interface RankingInput {
 export interface GameDefinition<TScore> {
   id: string
   name: string
+  /** scoring windows for the judge UI */
   phases: GamePhase[]
+  /** engine clock/sound timeline; covers the full match */
+  timeline: TimelineSegment[]
   matchLengthMs: number
   /** cue id -> public asset path */
   sounds: Record<string, string>

@@ -1,5 +1,10 @@
 import { useState } from "react"
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router"
+import {
+  Link,
+  createFileRoute,
+  redirect,
+  useRouter,
+} from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -7,6 +12,7 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -14,15 +20,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { getCurrentUser, login } from "@/server/functions/auth"
 
-export const Route = createFileRoute("/login")({
+export const Route = createFileRoute("/login/team")({
   beforeLoad: async () => {
     const user = await getCurrentUser()
     if (user) throw redirect({ to: user.role === "admin" ? "/admin" : "/team" })
   },
-  component: LoginPage,
+  component: TeamLoginPage,
 })
 
-function LoginPage() {
+function TeamLoginPage() {
   const router = useRouter()
   const loginFn = useServerFn(login)
   const [pending, setPending] = useState(false)
@@ -32,15 +38,14 @@ function LoginPage() {
     const form = new FormData(event.currentTarget)
     setPending(true)
     try {
-      const user = await loginFn({
-        data: {
-          username: String(form.get("username")),
-          password: String(form.get("password")),
-        },
+      // the team username is the zero-padded two-digit team number
+      const username = String(Number(form.get("number"))).padStart(2, "0")
+      await loginFn({
+        data: { username, password: String(form.get("password")) },
       })
-      await router.navigate({ to: user.role === "admin" ? "/admin" : "/team" })
+      await router.navigate({ to: "/team" })
     } catch {
-      toast.error("Invalid username or password")
+      toast.error("Invalid team number or password")
     } finally {
       setPending(false)
     }
@@ -50,19 +55,22 @@ function LoginPage() {
     <main className="flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>MiniSystem</CardTitle>
+          <CardTitle>Team sign in</CardTitle>
           <CardDescription>
-            Sign in with your admin or team account.
+            Use your team number and the password your event admin gave you.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="flex flex-col gap-4" onSubmit={onSubmit}>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="number">Team number</Label>
               <Input
-                id="username"
-                name="username"
-                autoComplete="username"
+                id="number"
+                name="number"
+                type="number"
+                min={1}
+                max={99}
+                inputMode="numeric"
                 required
                 autoFocus
               />
@@ -82,6 +90,11 @@ function LoginPage() {
             </Button>
           </form>
         </CardContent>
+        <CardFooter className="justify-center text-sm text-muted-foreground">
+          <Link to="/login" className="hover:underline">
+            ← Admin sign in
+          </Link>
+        </CardFooter>
       </Card>
     </main>
   )

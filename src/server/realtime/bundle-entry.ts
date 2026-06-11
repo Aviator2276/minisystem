@@ -3,4 +3,5 @@
 // singleton, so the main server bundle's publish() reaches the same instance.
 export { getWsAdapter } from "./ws"
 export { publish } from "./publish"
+export { bootstrap } from "@/server/bootstrap"
 export { REALTIME_PATH } from "@/shared/realtime-messages"

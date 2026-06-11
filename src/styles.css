@@ -49,6 +49,10 @@
 }
 
 :root {
+    /* alliance colors: used consistently across the display screen, judge
+       scorer, charts, and transitions throughout the app */
+    --alliance-red: oklch(0.577 0.215 27.3);
+    --alliance-blue: oklch(0.546 0.215 262.9);
     --background: oklch(1 0 0);
     --foreground: oklch(0.148 0.004 228.8);
     --card: oklch(1 0 0);

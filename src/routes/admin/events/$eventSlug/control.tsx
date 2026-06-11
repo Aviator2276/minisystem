@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -30,18 +30,36 @@ import {
   safeToEnter,
   setCurrentMatch,
 } from "@/server/functions/field-control"
+import { BracketGraphic } from "@/components/bracket/bracket-graphic"
+import { SelectionBoard } from "@/components/selection-board"
+import { DISPLAY_VIEWS, setDisplayView } from "@/server/functions/display"
+import { postMatch } from "@/server/functions/scoring"
+import type { DisplayView } from "@/server/functions/display"
 import { listMatches } from "@/server/functions/matches"
+import {
+  generatePlayoffBracket,
+  getBracketView,
+} from "@/server/functions/playoffs"
+import {
+  getSelection,
+  selectionInvite,
+  selectionRespond,
+  selectionUndo,
+} from "@/server/functions/selection"
+import type { EnrichedSelectionState } from "@/server/services/selection"
 import type { CachedAllianceScore } from "@/server/services/scoring"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ServerMessage } from "@/shared/realtime-messages"
 
-export const Route = createFileRoute("/admin/events/$eventId/control")({
-  loader: async ({ params }) => {
-    const [field, matches] = await Promise.all([
-      getFieldState({ data: { eventId: params.eventId } }),
-      listMatches({ data: { eventId: params.eventId } }),
+export const Route = createFileRoute("/admin/events/$eventSlug/control")({
+  loader: async ({ context }) => {
+    const [field, matches, selection, bracket] = await Promise.all([
+      getFieldState({ data: { eventId: context.event.id } }),
+      listMatches({ data: { eventId: context.event.id } }),
+      getSelection({ data: { eventId: context.event.id } }),
+      getBracketView({ data: { eventId: context.event.id } }),
     ])
-    return { field, matches }
+    return { field, matches, selection, bracket }
   },
   component: ControlPanel,
 })
@@ -73,11 +91,15 @@ function matchLabel(match: { type: string; number: number }) {
 }
 
 function ControlPanel() {
-  const { eventId } = Route.useParams()
+  const { event } = Route.useRouteContext()
+  const eventId = event.id
   const loaded = Route.useLoaderData()
 
+  const router = useRouter()
   const [field, setField] = useState<FieldState>(loaded.field)
   const [matches, setMatches] = useState(loaded.matches)
+  const [view, setView] = useState(event.displayView as DisplayView)
+  const [selection, setSelection] = useState(loaded.selection)
 
   const current = matches.find((m) => m.id === field.matchId) ?? null
   const [totals, setTotals] = useState<{ red: Totals; blue: Totals }>({
@@ -121,6 +143,15 @@ function ControlPanel() {
         )
       )
     }
+    if (message.type === "view_change") {
+      setView(message.view as DisplayView)
+    }
+    if (message.type === "selection_update") {
+      setSelection(message.payload as EnrichedSelectionState)
+    }
+    if (message.type === "bracket_update") {
+      void router.invalidate()
+    }
     if (message.type === "toast") {
       const show = message.variant === "warning" ? toast.warning : toast.info
       show(message.message)
@@ -133,6 +164,8 @@ function ControlPanel() {
   const playFn = useServerFn(playMatch)
   const faultFn = useServerFn(fieldFault)
   const replayFn = useServerFn(replayMatch)
+  const postMatchFn = useServerFn(postMatch)
+  const setViewFn = useServerFn(setDisplayView)
 
   async function run(action: () => Promise<FieldState>) {
     try {
@@ -142,10 +175,24 @@ function ControlPanel() {
     }
   }
 
+  async function publishScores() {
+    if (!current) return
+    try {
+      await postMatchFn({ data: { matchId: current.id } })
+      await setViewFn({ data: { eventId, view: "results" } })
+      toast.success("Scores published")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const canReplay =
     !field.running &&
     current !== null &&
     (current.status === "scored" || field.phase === "fault")
+
+  const canPublish =
+    !field.running && current !== null && current.status === "scored"
 
   return (
     <div className="flex flex-col gap-4">
@@ -246,6 +293,35 @@ function ControlPanel() {
             </Button>
           </CardContent>
         </Card>
+      </div>
+
+      {event.status === "alliance_selection" && (
+        <SelectionCard
+          eventId={eventId}
+          selection={selection}
+          onState={setSelection}
+        />
+      )}
+      {event.status === "playoffs" && (
+        <PlayoffCard eventId={eventId} bracket={loaded.bracket} />
+      )}
+
+      <DisplayCard eventId={eventId} eventSlug={event.slug} view={view} />
+
+      <div className="flex items-center gap-3">
+        <Button disabled={!canPublish} onClick={publishScores}>
+          Publish scores
+        </Button>
+        {canPublish && (
+          <p className="text-sm text-muted-foreground">
+            Posts final scores and switches the display to results
+          </p>
+        )}
+        {current?.status === "posted" && (
+          <p className="text-sm text-muted-foreground">
+            Scores already published
+          </p>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -351,6 +427,215 @@ function AlliancePoints({
             </div>
           </div>
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const VIEW_LABELS: Record<DisplayView, string> = {
+  match: "Match",
+  lineup: "Lineup",
+  results: "Results",
+  rankings: "Rankings",
+  selection: "Selection",
+  bracket: "Bracket",
+  intermission: "Intermission",
+  camera: "Camera only",
+}
+
+function DisplayCard({
+  eventId,
+  eventSlug,
+  view,
+}: {
+  eventId: string
+  eventSlug: string
+  view: DisplayView
+}) {
+  const setViewFn = useServerFn(setDisplayView)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Display screen</CardTitle>
+        <CardDescription>
+          What the audience sees — the preview below mirrors the live display
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-wrap gap-2">
+          {DISPLAY_VIEWS.map((candidate) => (
+            <Button
+              key={candidate}
+              variant={view === candidate ? "default" : "outline"}
+              size="sm"
+              onClick={async () => {
+                try {
+                  await setViewFn({ data: { eventId, view: candidate } })
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error ? error.message : String(error)
+                  )
+                }
+              }}
+            >
+              {VIEW_LABELS[candidate]}
+            </Button>
+          ))}
+        </div>
+        <div className="relative aspect-video w-full max-w-2xl overflow-hidden border bg-black">
+          <iframe
+            src={`/display/${eventSlug}?preview=1`}
+            title="Display preview"
+            className="pointer-events-none absolute top-0 left-0 h-[200%] w-[200%] origin-top-left scale-50 border-0"
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SelectionCard({
+  eventId,
+  selection,
+  onState,
+}: {
+  eventId: string
+  selection: EnrichedSelectionState
+  onState: (state: EnrichedSelectionState) => void
+}) {
+  const inviteFn = useServerFn(selectionInvite)
+  const respondFn = useServerFn(selectionRespond)
+  const undoFn = useServerFn(selectionUndo)
+
+  async function act(action: () => Promise<EnrichedSelectionState>) {
+    try {
+      onState(await action())
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  return (
+    <Card className="@container/board">
+      <CardHeader>
+        <CardTitle>Alliance selection</CardTitle>
+        <CardDescription>
+          {selection.complete
+            ? "Selection complete — advance the event to playoffs when ready"
+            : selection.pendingInvite
+              ? `Waiting on ${selection.pendingInvite.team.name} to respond`
+              : `Alliance ${selection.currentAllianceNumber} is picking (round ${selection.pickRound})`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <SelectionBoard state={selection} />
+
+        {selection.pendingInvite && (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() =>
+                act(() => respondFn({ data: { eventId, response: "accept" } }))
+              }
+            >
+              Accept on behalf
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() =>
+                act(() => respondFn({ data: { eventId, response: "decline" } }))
+              }
+            >
+              Decline on behalf
+            </Button>
+          </div>
+        )}
+
+        {!selection.complete &&
+          !selection.pendingInvite &&
+          selection.available.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Invite (rank order):
+              </span>
+              <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+                {selection.available.map((team) => (
+                  <Button
+                    key={team.teamId}
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      act(() =>
+                        inviteFn({ data: { eventId, teamId: team.teamId } })
+                      )
+                    }
+                  >
+                    {team.number} {team.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+        <div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => act(() => undoFn({ data: { eventId } }))}
+          >
+            Undo last action
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function PlayoffCard({
+  eventId,
+  bracket,
+}: {
+  eventId: string
+  bracket: Parameters<typeof BracketGraphic>[0]["bracket"]
+}) {
+  const router = useRouter()
+  const generateFn = useServerFn(generatePlayoffBracket)
+  const hasPosted = bracket.matches.some((m) => m.status === "posted")
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Playoff bracket</CardTitle>
+        <CardDescription>
+          Double elimination — queue playoff matches from the match selector
+          above
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {!hasPosted && (
+          <div>
+            <Button
+              size="sm"
+              onClick={async () => {
+                try {
+                  await generateFn({ data: { eventId } })
+                  await router.invalidate()
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error ? error.message : String(error)
+                  )
+                }
+              }}
+            >
+              {bracket.matches.length > 0
+                ? "Regenerate bracket"
+                : "Generate bracket"}
+            </Button>
+          </div>
+        )}
+        <BracketGraphic bracket={bracket} />
       </CardContent>
     </Card>
   )

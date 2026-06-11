@@ -45,6 +45,33 @@ export function updateTeam(
 
 export function deleteTeam(db: Db, id: string) {
   db.delete(tables.users).where(eq(tables.users.teamId, id)).run()
+  db.delete(tables.eventTeams).where(eq(tables.eventTeams.teamId, id)).run()
+  // Null out match slots so history is preserved but shows no team
+  for (const col of [
+    "red1",
+    "red2",
+    "red3",
+    "blue1",
+    "blue2",
+    "blue3",
+  ] as const) {
+    db.update(tables.matches)
+      .set({ [col]: null })
+      .where(eq(tables.matches[col], id))
+      .run()
+  }
+  // Null out alliance slots
+  for (const col of [
+    "captainTeamId",
+    "pick1TeamId",
+    "pick2TeamId",
+    "backupTeamId",
+  ] as const) {
+    db.update(tables.alliances)
+      .set({ [col]: null })
+      .where(eq(tables.alliances[col], id))
+      .run()
+  }
   db.delete(tables.teams).where(eq(tables.teams.id, id)).run()
 }
 
@@ -60,8 +87,15 @@ export function removeParticipant(db: Db, id: string) {
   db.delete(tables.participants).where(eq(tables.participants.id, id)).run()
 }
 
-/** creates (or resets) the team's login; returns the one-time plaintext password */
-export function provisionTeamAccount(db: Db, teamId: string) {
+/**
+ * Creates (or resets) the team's login. Admins may supply a custom password;
+ * otherwise one is generated. Returns the one-time plaintext password.
+ */
+export function provisionTeamAccount(
+  db: Db,
+  teamId: string,
+  customPassword?: string
+) {
   const team = db
     .select()
     .from(tables.teams)
@@ -69,7 +103,7 @@ export function provisionTeamAccount(db: Db, teamId: string) {
     .get()
   if (!team) throw new Error("Team not found")
   const username = String(team.number).padStart(2, "0")
-  const password = randomBytes(4).toString("hex")
+  const password = customPassword?.trim() || randomBytes(4).toString("hex")
   const passwordHash = hashPassword(password)
 
   const existing = db

@@ -1,7 +1,18 @@
 import { useState } from "react"
+import { Loader2Icon } from "lucide-react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,6 +24,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Table,
   TableBody,
@@ -22,7 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { getGame } from "@/games"
-import { getEvent, listEventTeams } from "@/server/functions/events"
+import { listEventTeams } from "@/server/functions/events"
 import { listMatches, regenerateQualSchedule } from "@/server/functions/matches"
 import {
   listScoreEvents,
@@ -31,14 +43,13 @@ import {
   undoScoreEvent,
 } from "@/server/functions/scoring"
 
-export const Route = createFileRoute("/admin/events/$eventId/matches")({
-  loader: async ({ params }) => {
-    const [event, matches, roster] = await Promise.all([
-      getEvent({ data: { eventId: params.eventId } }),
-      listMatches({ data: { eventId: params.eventId } }),
-      listEventTeams({ data: { eventId: params.eventId } }),
+export const Route = createFileRoute("/admin/events/$eventSlug/matches")({
+  loader: async ({ context }) => {
+    const [matches, roster] = await Promise.all([
+      listMatches({ data: { eventId: context.event.id } }),
+      listEventTeams({ data: { eventId: context.event.id } }),
     ])
-    return { event, matches, roster }
+    return { event: context.event, matches, roster }
   },
   component: MatchesPage,
 })
@@ -50,6 +61,20 @@ function MatchesPage() {
   const router = useRouter()
   const regenerateFn = useServerFn(regenerateQualSchedule)
   const [scoring, setScoring] = useState<MatchRow | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [pendingRounds, setPendingRounds] = useState<number | null>(null)
+
+  async function runRegenerate(rounds: number) {
+    setGenerating(true)
+    try {
+      await regenerateFn({ data: { eventId: event.id, roundsPerTeam: rounds } })
+      await router.invalidate()
+    } catch (error) {
+      toast.error(String(error))
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   const numbers = new Map(roster.map((t) => [t.teamId, t.number]))
   const label = (teamId: string | null) =>
@@ -60,19 +85,13 @@ function MatchesPage() {
       {event.status === "setup" && (
         <form
           className="flex items-end gap-2"
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault()
-            const form = new FormData(e.currentTarget)
-            try {
-              await regenerateFn({
-                data: {
-                  eventId: event.id,
-                  roundsPerTeam: Number(form.get("rounds")),
-                },
-              })
-              await router.invalidate()
-            } catch (error) {
-              toast.error(String(error))
+            const rounds = Number(new FormData(e.currentTarget).get("rounds"))
+            if (matches.length > 0) {
+              setPendingRounds(rounds)
+            } else {
+              void runRegenerate(rounds)
             }
           }}
         >
@@ -160,6 +179,51 @@ function MatchesPage() {
           }}
         />
       )}
+
+      <AlertDialog
+        open={pendingRounds !== null}
+        onOpenChange={(open) => !open && setPendingRounds(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Regenerate schedule?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will delete all {matches.length} existing match
+              {matches.length !== 1 ? "es" : ""} and build a new schedule from
+              scratch. Any recorded scores will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const rounds = pendingRounds!
+                setPendingRounds(null)
+                void runRegenerate(rounds)
+              }}
+            >
+              Delete and regenerate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={generating}>
+        <DialogContent
+          className="max-w-xs text-center"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          showCloseButton={false}
+        >
+          <DialogHeader className="items-center">
+            <Loader2Icon className="size-8 animate-spin text-muted-foreground" />
+            <DialogTitle>Generating schedule</DialogTitle>
+            <DialogDescription>
+              Building a balanced match schedule — this may take a moment.
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -292,38 +356,40 @@ function ScoreDialog({
 
         <div className="flex flex-col gap-2">
           <h3 className="text-xs font-medium">Recorded events</h3>
-          <ul className="flex max-h-32 flex-col gap-1 overflow-y-auto text-xs">
-            {log.length === 0 && (
-              <li className="text-muted-foreground">
-                None yet — record or refresh.
-              </li>
-            )}
-            {log.map((e) => (
-              <li key={e.id} className="flex items-center gap-2">
-                <span className="font-mono">
-                  [{e.alliance}] {e.type}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  onClick={async () => {
-                    await undoFn({ data: { scoreEventId: e.id } })
-                    const matches = await listMatches({
-                      data: { eventId: match.eventId },
-                    })
-                    const updated = matches.find((m) => m.id === match.id)
-                    setPoints({
-                      red: updated?.redPoints ?? null,
-                      blue: updated?.bluePoints ?? null,
-                    })
-                    await refresh()
-                  }}
-                >
-                  undo
-                </Button>
-              </li>
-            ))}
-          </ul>
+          <ScrollArea className="h-32">
+            <ul className="flex flex-col gap-1 text-xs">
+              {log.length === 0 && (
+                <li className="text-muted-foreground">
+                  None yet — record or refresh.
+                </li>
+              )}
+              {log.map((e) => (
+                <li key={e.id} className="flex items-center gap-2">
+                  <span className="font-mono">
+                    [{e.alliance}] {e.type}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={async () => {
+                      await undoFn({ data: { scoreEventId: e.id } })
+                      const matches = await listMatches({
+                        data: { eventId: match.eventId },
+                      })
+                      const updated = matches.find((m) => m.id === match.id)
+                      setPoints({
+                        red: updated?.redPoints ?? null,
+                        blue: updated?.bluePoints ?? null,
+                      })
+                      await refresh()
+                    }}
+                  >
+                    undo
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </ScrollArea>
           <div className="flex justify-between">
             <Button variant="ghost" size="sm" onClick={refresh}>
               Refresh log

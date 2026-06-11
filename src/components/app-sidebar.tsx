@@ -42,7 +42,7 @@ export function AppSidebar({
   user,
   ...props
 }: {
-  events: { id: string; name: string; status: string }[]
+  events: { id: string; slug: string; name: string; status: string }[]
   user: { username: string; role: string }
 } & React.ComponentProps<typeof Sidebar>) {
   return (

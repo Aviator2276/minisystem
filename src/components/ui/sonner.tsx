@@ -28,12 +28,25 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
+          "--success-bg": "var(--popover)",
+          "--success-text": "var(--popover-foreground)",
+          "--success-border": "var(--border)",
+          "--error-bg": "var(--popover)",
+          "--error-text": "var(--popover-foreground)",
+          "--error-border": "var(--border)",
+          "--warning-bg": "var(--popover)",
+          "--warning-text": "var(--popover-foreground)",
+          "--warning-border": "var(--border)",
+          "--border-radius": "0",
+          fontFamily: "var(--font-mono)",
         } as React.CSSProperties
       }
       toastOptions={{
         classNames: {
-          toast: "cn-toast",
+          toast: "font-mono text-xs",
+          title: "font-mono text-xs! font-medium",
+          description: "font-mono text-xs!",
+          icon: "[&>svg.lucide-circle-check]:text-primary [&>svg.lucide-octagon-x]:text-destructive [&>svg.lucide-triangle-alert]:text-yellow-500",
         },
       }}
       {...props}

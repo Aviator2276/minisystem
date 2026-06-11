@@ -63,7 +63,7 @@ const withDevtools = !process.env.MINISYSTEM_DISABLE_DEVTOOLS
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   define: {
-    "import.meta.env.MINISYSTEM_DEVTOOLS": JSON.stringify(withDevtools),
+    "import.meta.env.VITE_DEVTOOLS_DISABLED": JSON.stringify(!withDevtools),
   },
   plugins: [
     ...(withDevtools ? [devtools()] : []),
