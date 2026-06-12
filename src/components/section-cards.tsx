@@ -69,7 +69,6 @@ export function SectionCards({
             <div className="line-clamp-1 flex gap-2 font-medium">
               {card.footer}
             </div>
-            <div className="text-muted-foreground">{card.detail}</div>
           </CardFooter>
         </Card>
       ))}
