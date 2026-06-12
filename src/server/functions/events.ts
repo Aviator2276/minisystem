@@ -31,6 +31,15 @@ export const createEvent = createServerFn({ method: "POST" })
   )
   .handler(({ data }) => events.createEvent(db, data))
 
+export const duplicateEvent = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .validator(
+    z.object({ sourceEventId: z.string(), name: z.string().min(1) })
+  )
+  .handler(({ data }) =>
+    events.duplicateEvent(db, data.sourceEventId, data.name)
+  )
+
 export const listEventTeams = createServerFn()
   .middleware([requireUser])
   .validator(z.object({ eventId: z.string() }))

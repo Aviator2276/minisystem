@@ -21,6 +21,7 @@ export const DISPLAY_VIEWS = [
   "rankings",
   "selection",
   "bracket",
+  "schedule",
   "intermission",
   "camera",
 ] as const

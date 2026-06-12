@@ -46,12 +46,59 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
+/** a slug that isn't yet taken, suffixing -2, -3, … on collision */
+function uniqueSlug(db: Db, base: string): string {
+  const root = base || "event"
+  let slug = root
+  let n = 2
+  while (
+    db.select().from(tables.events).where(eq(tables.events.slug, slug)).get()
+  ) {
+    slug = `${root}-${n++}`
+  }
+  return slug
+}
+
 export function createEvent(db: Db, input: { name: string; slug?: string }) {
   return db
     .insert(tables.events)
     .values({ name: input.name, slug: input.slug || slugify(input.name) })
     .returning()
     .get()
+}
+
+/**
+ * Create a new event from an existing one: copies the name (renamed by the
+ * caller), game, and settings, plus the team roster. None of the generated
+ * data (matches, scores, alliances, selection, cards) is carried over — the
+ * copy starts fresh in `setup`.
+ */
+export function duplicateEvent(db: Db, sourceEventId: string, name: string) {
+  const source = getEvent(db, sourceEventId)
+  return db.transaction((tx) => {
+    const event = tx
+      .insert(tables.events)
+      .values({
+        name,
+        slug: uniqueSlug(tx, slugify(name)),
+        gameId: source.gameId,
+        settings: source.settings,
+      })
+      .returning()
+      .get()
+
+    const roster = tx
+      .select({ teamId: tables.eventTeams.teamId })
+      .from(tables.eventTeams)
+      .where(eq(tables.eventTeams.eventId, sourceEventId))
+      .all()
+    if (roster.length > 0) {
+      tx.insert(tables.eventTeams)
+        .values(roster.map((r) => ({ eventId: event.id, teamId: r.teamId })))
+        .run()
+    }
+    return event
+  })
 }
 
 export function deleteEvent(db: Db, eventId: string) {

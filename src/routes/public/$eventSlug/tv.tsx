@@ -3,6 +3,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
 import { ScaleToFit } from "@/components/scale-to-fit"
+import { ScheduleView } from "@/components/schedule-view"
 import { useRealtime } from "@/hooks/use-realtime"
 import {
   RANKINGS_PAGE_MS,
@@ -23,7 +24,7 @@ export const Route = createFileRoute("/public/$eventSlug/tv")({
   component: TvMode,
 })
 
-type PanelId = "rankings" | "upnext" | "bracket" | "info"
+type PanelId = "rankings" | "upnext" | "schedule" | "bracket" | "info"
 
 function TvMode() {
   const boot = Route.useLoaderData()
@@ -54,10 +55,11 @@ function TvMode() {
     const list: PanelId[] = []
     if (boot.rankings.length > 0) list.push("rankings")
     list.push("upnext")
+    if (boot.matches.length > 0) list.push("schedule")
     if (boot.bracket.matches.length > 0) list.push("bracket")
     list.push("info")
     return list
-  }, [boot.rankings.length, boot.bracket.matches.length])
+  }, [boot.rankings.length, boot.matches.length, boot.bracket.matches.length])
 
   const [index, setIndex] = useState(0)
   // the rankings panel stays long enough to page through every team before
@@ -116,6 +118,20 @@ function TvMode() {
                 running={field.running}
                 order={allianceOrder(boot.event.flipAllianceSides)}
               />
+            )}
+            {panel === "schedule" && (
+              <div className="flex h-full flex-col justify-center gap-8 overflow-hidden">
+                <h1 className="shrink-0 text-center text-4xl font-bold">
+                  Schedule
+                </h1>
+                <ScheduleView
+                  matches={boot.matches}
+                  teams={boot.teams}
+                  currentMatchId={field.matchId}
+                  order={allianceOrder(boot.event.flipAllianceSides)}
+                  dark
+                />
+              </div>
             )}
             {panel === "bracket" && (
               <div className="flex h-full flex-col gap-4 overflow-hidden">

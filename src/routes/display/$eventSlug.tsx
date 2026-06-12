@@ -3,6 +3,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
 import { ScaleToFit } from "@/components/scale-to-fit"
+import { ScheduleView } from "@/components/schedule-view"
 import { SelectionBoard } from "@/components/selection-board"
 import { AnimatedNumber } from "@/components/animated-number"
 import { Confetti } from "@/components/display/confetti"
@@ -81,6 +82,13 @@ function DisplayScreen() {
     []
   )
 
+  // re-sync the schedule when the loader refetches (e.g. after playoff matches
+  // are generated): score_update only patches existing rows, so newly created
+  // matches reach the display only through a fresh loader payload
+  useEffect(() => {
+    setMatches(boot.matches)
+  }, [boot.matches])
+
   // Preload + reuse one Audio element per cue. Creating a fresh `new Audio()`
   // on every play has to fetch and decode the file first — that's the lag on
   // the results sound. Once armed (a user gesture has unlocked audio) we load
@@ -142,6 +150,14 @@ function DisplayScreen() {
       blue: cachedSide(current?.blueScore),
     })
   }, [field.matchId])
+
+  // re-seed the match list when the loader refetches (e.g. a bracket_update
+  // adds new playoff matches) so the schedule/lineup views pick them up live;
+  // boot.matches keeps a stable reference between refetches, so this won't
+  // clobber the live status/score patches applied by score_update
+  useEffect(() => {
+    setMatches(boot.matches)
+  }, [boot.matches])
 
   useRealtime([topicFor(boot.event.id, "public")], (message) => {
     switch (message.type) {
@@ -333,6 +349,20 @@ function DisplayScreen() {
                     currentMatchId={field.matchId}
                   />
                 </ScaleToFit>
+              </div>
+            )}
+            {view === "schedule" && (
+              <div className="flex h-full flex-col justify-center gap-8 p-10">
+                <h1 className="shrink-0 text-center text-4xl font-bold">
+                  Schedule
+                </h1>
+                <ScheduleView
+                  matches={matches}
+                  teams={boot.teams}
+                  currentMatchId={field.matchId}
+                  order={order}
+                  dark
+                />
               </div>
             )}
             {view === "intermission" && (

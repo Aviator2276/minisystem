@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import {
   BanIcon,
+  CalendarDaysIcon,
   ChevronDownIcon,
   CoffeeIcon,
   DoorOpenIcon,
@@ -195,21 +196,29 @@ function ControlPanel() {
   const current = matches.find((m) => m.id === field.matchId) ?? null
   // queue order: practice → quals → playoffs, then play order
   const queueMatches = sortMatchesByType(matches)
-  // the next still-scheduled match after the current one, for auto-advance
+  // "advance on lineup" anchors on the currently queued match and moves to the
+  // next still-scheduled match after it. If nothing is queued yet we return
+  // null rather than guessing — never jump to the start of the schedule.
   const currentQueueIndex = queueMatches.findIndex(
     (m) => m.id === field.matchId
   )
   const nextMatchId =
-    (currentQueueIndex >= 0
-      ? queueMatches
+    currentQueueIndex >= 0
+      ? (queueMatches
           .slice(currentQueueIndex + 1)
-          .find((m) => m.status === "scheduled")
-      : queueMatches.find((m) => m.status === "scheduled")
-    )?.id ?? null
+          .find((m) => m.status === "scheduled")?.id ?? null)
+      : null
   const [totals, setTotals] = useState<{ red: Totals; blue: Totals }>({
     red: (current?.redScore as CachedAllianceScore | null)?.totals ?? null,
     blue: (current?.blueScore as CachedAllianceScore | null)?.totals ?? null,
   })
+
+  // re-sync the queue when the loader refetches (e.g. after playoff matches are
+  // generated): score_update only patches existing rows, so newly created
+  // matches reach the dropdown only through a fresh loader payload
+  useEffect(() => {
+    setMatches(loaded.matches)
+  }, [loaded.matches])
 
   // re-seed the points panel from the cached aggregates when the queue changes
   useEffect(() => {
@@ -993,6 +1002,7 @@ const VIEW_LABELS: Record<DisplayView, string> = {
   rankings: "Rankings",
   selection: "Selection",
   bracket: "Bracket",
+  schedule: "Schedule",
   intermission: "Intermission",
   camera: "Camera only",
 }
@@ -1004,6 +1014,7 @@ const VIEW_ICONS: Record<DisplayView, LucideIcon> = {
   rankings: ListOrderedIcon,
   selection: HandshakeIcon,
   bracket: TrophyIcon,
+  schedule: CalendarDaysIcon,
   intermission: CoffeeIcon,
   camera: VideoIcon,
 }
@@ -1022,9 +1033,9 @@ const VIEW_GROUPS: {
     views: ["lineup", "match", "results", "rankings"],
   },
   {
-    label: "Playoffs",
-    hint: "alliance selection → elimination bracket",
-    views: ["selection", "bracket"],
+    label: "Informational",
+    hint: "selection · bracket · rolling schedule",
+    views: ["selection", "bracket", "schedule"],
   },
 ]
 
@@ -1053,6 +1064,7 @@ function DisplayCard({
 }) {
   const setViewFn = useServerFn(setDisplayView)
   const flipFn = useServerFn(setFlipAllianceSides)
+  const [advanceOnLineup, setAdvanceOnLineup] = useState(false)
 
   async function switchTo(candidate: DisplayView) {
     try {
@@ -1062,9 +1074,9 @@ function DisplayCard({
       if (candidate === "camera" && matchEnded) {
         await onSafeToEnter()
       }
-      // after a finished match, jumping to the lineup queues the next match so
-      // the lineup shown is for the upcoming match
-      if (candidate === "lineup" && matchEnded && nextMatchId) {
+      // with "Advance on lineup" on, showing the lineup always queues the next
+      // match so the lineup displayed is the upcoming match
+      if (candidate === "lineup" && advanceOnLineup && nextMatchId) {
         await onQueueMatch(nextMatchId)
       }
     } catch (error) {
@@ -1121,6 +1133,19 @@ function DisplayCard({
                 className="text-sm font-normal text-muted-foreground"
               >
                 Blue on left
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="advance-on-lineup"
+                checked={advanceOnLineup}
+                onCheckedChange={setAdvanceOnLineup}
+              />
+              <Label
+                htmlFor="advance-on-lineup"
+                className="text-sm font-normal text-muted-foreground"
+              >
+                Advance on lineup
               </Label>
             </div>
             <Badge variant="secondary" className="gap-1.5">

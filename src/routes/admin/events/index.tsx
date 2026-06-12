@@ -33,8 +33,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { createEvent, deleteEvent, listEvents } from "@/server/functions/events"
-import { PlusIcon, Trash2Icon } from "lucide-react"
+import {
+  createEvent,
+  deleteEvent,
+  duplicateEvent,
+  listEvents,
+} from "@/server/functions/events"
+import { CopyIcon, PlusIcon, Trash2Icon } from "lucide-react"
 
 export const Route = createFileRoute("/admin/events/")({
   loader: () => listEvents(),
@@ -46,11 +51,41 @@ function EventsPage() {
   const router = useRouter()
   const createFn = useServerFn(createEvent)
   const deleteFn = useServerFn(deleteEvent)
+  const duplicateFn = useServerFn(duplicateEvent)
   const [createOpen, setCreateOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<{
     id: string
     name: string
   } | null>(null)
+  const [duplicateSource, setDuplicateSource] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [duplicateName, setDuplicateName] = useState("")
+  const [duplicating, setDuplicating] = useState(false)
+
+  function openDuplicate(event: { id: string; name: string }) {
+    setDuplicateSource({ id: event.id, name: event.name })
+    setDuplicateName(`${event.name} (copy)`)
+  }
+
+  async function submitDuplicate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!duplicateSource || !duplicateName.trim()) return
+    setDuplicating(true)
+    try {
+      await duplicateFn({
+        data: { sourceEventId: duplicateSource.id, name: duplicateName.trim() },
+      })
+      setDuplicateSource(null)
+      toast.success("Event duplicated")
+      await router.invalidate()
+    } catch {
+      toast.error("Could not duplicate event — is the name unique?")
+    } finally {
+      setDuplicating(false)
+    }
+  }
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
@@ -134,6 +169,14 @@ function EventsPage() {
                 <Button
                   variant="ghost"
                   size="icon"
+                  title={`Duplicate ${event.name}`}
+                  onClick={() => openDuplicate(event)}
+                >
+                  <CopyIcon className="size-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   title={`Delete ${event.name}`}
                   onClick={() =>
                     setPendingDelete({ id: event.id, name: event.name })
@@ -146,6 +189,38 @@ function EventsPage() {
           ))}
         </TableBody>
       </Table>
+
+      <Dialog
+        open={duplicateSource !== null}
+        onOpenChange={(open) => !open && setDuplicateSource(null)}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Duplicate event</DialogTitle>
+            <DialogDescription>
+              Creates a new event with {duplicateSource?.name}’s team roster and
+              settings. Matches, scores, alliances, and cards are not copied.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="flex flex-col gap-4" onSubmit={submitDuplicate}>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="duplicate-name">New name</Label>
+              <Input
+                id="duplicate-name"
+                value={duplicateName}
+                onChange={(e) => setDuplicateName(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={duplicating}>
+                Duplicate
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={pendingDelete !== null}
