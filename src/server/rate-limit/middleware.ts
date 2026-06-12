@@ -1,4 +1,4 @@
-import { createMiddleware } from "@tanstack/react-start"
+import { createMiddleware, createServerOnlyFn } from "@tanstack/react-start"
 import {
   getRequestHeader,
   getRequestIP,
@@ -25,7 +25,11 @@ const DEBUG_WINDOW_MS = 60 * 1000
  * counting contextless calls against one shared key would throttle all
  * visitors collectively.
  */
-export function clientIp(): string | null {
+// server-only: reads request context. Wrapping it keeps the server-only
+// `@tanstack/react-start/server` imports out of the client bundle — without
+// this, `clientIp` is a plain export reachable from client code (via the
+// server functions that use these middlewares) and trips import protection.
+export const clientIp = createServerOnlyFn((): string | null => {
   try {
     return (
       getRequestIP({ xForwardedFor: true }) ??
@@ -35,7 +39,7 @@ export function clientIp(): string | null {
   } catch {
     return null
   }
-}
+})
 
 function limitBy(name: string, max: number, windowMs: number) {
   return createMiddleware({ type: "function" }).server(({ next }) => {
