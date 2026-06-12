@@ -151,14 +151,6 @@ function DisplayScreen() {
     })
   }, [field.matchId])
 
-  // re-seed the match list when the loader refetches (e.g. a bracket_update
-  // adds new playoff matches) so the schedule/lineup views pick them up live;
-  // boot.matches keeps a stable reference between refetches, so this won't
-  // clobber the live status/score patches applied by score_update
-  useEffect(() => {
-    setMatches(boot.matches)
-  }, [boot.matches])
-
   useRealtime([topicFor(boot.event.id, "public")], (message) => {
     switch (message.type) {
       case "match_state":
