@@ -1,7 +1,30 @@
-import { useState } from "react"
-import { Loader2Icon, PlusIcon, Trash2Icon } from "lucide-react"
+import { useEffect, useState } from "react"
+import {
+  GripVerticalIcon,
+  Loader2Icon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core"
+import type { DragEndEvent } from "@dnd-kit/core"
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -15,6 +38,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -46,9 +70,11 @@ import { listEventTeams } from "@/server/functions/events"
 import {
   createCustomMatch,
   deleteMatch,
+  deleteMatches,
   generateMoreQualMatches,
   listMatches,
   regenerateQualSchedule,
+  reorderMatches,
 } from "@/server/functions/matches"
 import {
   listScoreEvents,
@@ -58,7 +84,7 @@ import {
 } from "@/server/functions/scoring"
 import { allianceOrder } from "@/shared/alliance"
 import type { Alliance } from "@/shared/alliance"
-import { matchShortLabel } from "@/shared/match-format"
+import { matchShortLabel, sortMatchesByType } from "@/shared/match-format"
 
 export const Route = createFileRoute("/admin/events/$eventSlug/matches")({
   loader: async ({ context }) => {
@@ -80,13 +106,58 @@ function MatchesPage() {
   const regenerateFn = useServerFn(regenerateQualSchedule)
   const generateMoreFn = useServerFn(generateMoreQualMatches)
   const deleteFn = useServerFn(deleteMatch)
+  const deleteManyFn = useServerFn(deleteMatches)
   const [scoring, setScoring] = useState<MatchRow | null>(null)
   const [generating, setGenerating] = useState(false)
   const [pendingRounds, setPendingRounds] = useState<number | null>(null)
   const [customOpen, setCustomOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<MatchRow | null>(null)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [bulkConfirm, setBulkConfirm] = useState(false)
 
   const canEdit = event.status === "setup" || event.status === "quals"
+
+  // local copy drives drag order, sorted by type (practice → quals →
+  // playoffs) then play order; resyncs whenever the loader refetches
+  const reorderFn = useServerFn(reorderMatches)
+  const [rows, setRows] = useState<MatchRow[]>(() => sortMatchesByType(matches))
+  useEffect(() => setRows(sortMatchesByType(matches)), [matches])
+
+  // only non-running matches can be deleted, so only those are selectable
+  const selectable = rows.filter((m) => m.status !== "running")
+  const selectedIds = selectable
+    .filter((m) => selected.has(m.id))
+    .map((m) => m.id)
+  const allSelected =
+    selectable.length > 0 && selectedIds.length === selectable.length
+  const someSelected = selectedIds.length > 0 && !allSelected
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(selectable.map((m) => m.id)))
+  }
+
+  async function runBulkDelete() {
+    setBulkConfirm(false)
+    try {
+      await deleteManyFn({ data: { eventId: event.id, matchIds: selectedIds } })
+      setSelected(new Set())
+      toast.success(
+        `Deleted ${selectedIds.length} match${selectedIds.length === 1 ? "" : "es"}`
+      )
+      await router.invalidate()
+    } catch (error) {
+      toast.error(String(error))
+    }
+  }
 
   async function runRegenerate(rounds: number) {
     setGenerating(true)
@@ -111,6 +182,41 @@ function MatchesPage() {
       toast.error(String(error))
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const sensors = useSensors(
+    // a small drag threshold so clicking the grip doesn't start a phantom drag
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 5 },
+    }),
+    useSensor(KeyboardSensor)
+  )
+
+  async function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const activeMatch = rows.find((m) => m.id === active.id)
+    const overMatch = rows.find((m) => m.id === over.id)
+    // keep the type groups intact — only reorder within a single group
+    if (!activeMatch || !overMatch || activeMatch.type !== overMatch.type)
+      return
+
+    const next = arrayMove(
+      rows,
+      rows.indexOf(activeMatch),
+      rows.indexOf(overMatch)
+    )
+    setRows(next) // optimistic
+    try {
+      await reorderFn({
+        data: { eventId: event.id, orderedIds: next.map((m) => m.id) },
+      })
+      await router.invalidate()
+    } catch (error) {
+      toast.error(String(error))
+      setRows(matches) // revert on failure
     }
   }
 
@@ -172,88 +278,93 @@ function MatchesPage() {
         </div>
       )}
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Match</TableHead>
-            {order.map((side) => (
-              <TableHead
-                key={side}
-                className="capitalize"
-                style={{ color: `var(--alliance-${side})` }}
-              >
-                {side}
-              </TableHead>
-            ))}
-            <TableHead>Score</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {matches.map((match) => (
-            <TableRow key={match.id}>
-              <TableCell>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="font-medium">{matchShortLabel(match)}</span>
-                  {match.type === "practice" && (
-                    <Badge variant="secondary" className="text-[0.65rem]">
-                      practice
-                    </Badge>
-                  )}
-                </span>
-              </TableCell>
+      {canEdit && selectedIds.length > 0 && (
+        <div className="flex items-center gap-2 border bg-muted/40 px-3 py-2">
+          <span className="text-sm font-medium">
+            {selectedIds.length} selected
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setSelected(new Set())}
+          >
+            Clear
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setBulkConfirm(true)}
+          >
+            <Trash2Icon />
+            Delete selected
+          </Button>
+        </div>
+      )}
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis]}
+        onDragEnd={handleDragEnd}
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {canEdit && <TableHead className="w-8" />}
+              {canEdit && (
+                <TableHead className="w-8">
+                  <Checkbox
+                    aria-label="Select all matches"
+                    checked={
+                      allSelected
+                        ? true
+                        : someSelected
+                          ? "indeterminate"
+                          : false
+                    }
+                    disabled={selectable.length === 0}
+                    onCheckedChange={toggleAll}
+                  />
+                </TableHead>
+              )}
+              <TableHead>Match</TableHead>
               {order.map((side) => (
-                <TableCell key={side}>
-                  {(side === "red"
-                    ? [match.red1, match.red2, match.red3]
-                    : [match.blue1, match.blue2, match.blue3]
-                  )
-                    .map(label)
-                    .join(" · ")}
-                  {side === "red" && match.surrogates.length > 0 && " *"}
-                </TableCell>
-              ))}
-              <TableCell className="font-mono">
-                {match.redPoints !== null
-                  ? `${order.map((s) =>
-                      s === "red" ? match.redPoints : match.bluePoints
-                    ).join("–")}`
-                  : "—"}
-              </TableCell>
-              <TableCell>
-                <Badge
-                  variant={match.status === "posted" ? "default" : "outline"}
+                <TableHead
+                  key={side}
+                  className="capitalize"
+                  style={{ color: `var(--alliance-${side})` }}
                 >
-                  {match.status}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-right">
-                <div className="flex justify-end gap-1">
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    onClick={() => setScoring(match)}
-                  >
-                    Score
-                  </Button>
-                  {canEdit && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      title="Delete match"
-                      disabled={match.status === "running"}
-                      onClick={() => setPendingDelete(match)}
-                    >
-                      <Trash2Icon className="text-destructive" />
-                    </Button>
-                  )}
-                </div>
-              </TableCell>
+                  {side}
+                </TableHead>
+              ))}
+              <TableHead>Score</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead />
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            <SortableContext
+              items={rows.map((m) => m.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {rows.map((match) => (
+                <SortableMatchRow
+                  key={match.id}
+                  match={match}
+                  canEdit={canEdit}
+                  order={order}
+                  label={label}
+                  selected={selected.has(match.id)}
+                  onToggle={toggle}
+                  onScore={setScoring}
+                  onDelete={setPendingDelete}
+                />
+              ))}
+            </SortableContext>
+          </TableBody>
+        </Table>
+      </DndContext>
 
       {scoring && (
         <ScoreDialog
@@ -349,6 +460,31 @@ function MatchesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog
+        open={bulkConfirm}
+        onOpenChange={(open) => !open && setBulkConfirm(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedIds.length} selected match
+              {selectedIds.length === 1 ? "" : "es"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the matches and any recorded scores. This cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void runBulkDelete()}>
+              Delete {selectedIds.length} match
+              {selectedIds.length === 1 ? "" : "es"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <CustomMatchDialog
         open={customOpen}
         onOpenChange={setCustomOpen}
@@ -361,6 +497,128 @@ function MatchesPage() {
         }}
       />
     </div>
+  )
+}
+
+function SortableMatchRow({
+  match,
+  canEdit,
+  order,
+  label,
+  selected,
+  onToggle,
+  onScore,
+  onDelete,
+}: {
+  match: MatchRow
+  canEdit: boolean
+  order: readonly [Alliance, Alliance]
+  label: (teamId: string | null) => string
+  selected: boolean
+  onToggle: (id: string) => void
+  onScore: (match: MatchRow) => void
+  onDelete: (match: MatchRow) => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: match.id })
+
+  return (
+    <TableRow
+      ref={setNodeRef}
+      data-state={selected ? "selected" : undefined}
+      data-dragging={isDragging}
+      className="data-[dragging=true]:opacity-80"
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        position: "relative",
+        zIndex: isDragging ? 1 : 0,
+      }}
+    >
+      {canEdit && (
+        <TableCell className="w-8">
+          <button
+            type="button"
+            className="flex cursor-grab touch-none items-center text-muted-foreground active:cursor-grabbing"
+            aria-label="Drag to reorder"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVerticalIcon className="size-4" />
+          </button>
+        </TableCell>
+      )}
+      {canEdit && (
+        <TableCell>
+          <Checkbox
+            aria-label={`Select ${matchShortLabel(match)}`}
+            checked={selected}
+            disabled={match.status === "running"}
+            onCheckedChange={() => onToggle(match.id)}
+          />
+        </TableCell>
+      )}
+      <TableCell>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="font-medium">{matchShortLabel(match)}</span>
+          {match.type === "practice" && (
+            <Badge variant="secondary" className="text-[0.65rem]">
+              practice
+            </Badge>
+          )}
+        </span>
+      </TableCell>
+      {order.map((side) => {
+        const base =
+          side === "red"
+            ? [match.red1, match.red2, match.red3]
+            : [match.blue1, match.blue2, match.blue3]
+        const backup = side === "red" ? match.red4 : match.blue4
+        return (
+          <TableCell key={side}>
+            {base.map(label).join(" · ")}
+            {backup && ` · ${label(backup)} (B)`}
+            {side === "red" && match.surrogates.length > 0 && " *"}
+          </TableCell>
+        )
+      })}
+      <TableCell className="font-mono">
+        {match.redPoints !== null
+          ? `${order
+              .map((s) => (s === "red" ? match.redPoints : match.bluePoints))
+              .join("–")}`
+          : "—"}
+      </TableCell>
+      <TableCell>
+        <Badge variant={match.status === "posted" ? "default" : "outline"}>
+          {match.status}
+        </Badge>
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="flex justify-end gap-1">
+          <Button variant="outline" size="xs" onClick={() => onScore(match)}>
+            Score
+          </Button>
+          {canEdit && (
+            <Button
+              variant="ghost"
+              size="xs"
+              title="Delete match"
+              disabled={match.status === "running"}
+              onClick={() => onDelete(match)}
+            >
+              <Trash2Icon className="text-destructive" />
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
   )
 }
 

@@ -13,6 +13,48 @@ export interface CachedAllianceScore {
   totals: ScoreTotals
 }
 
+/** which alliances of this match have their score zeroed by a live red card */
+function redCardedAlliances(
+  db: Db,
+  match: typeof tables.matches.$inferSelect
+): Set<AllianceColor> {
+  const cards = db
+    .select()
+    .from(tables.cards)
+    .where(
+      and(
+        eq(tables.cards.matchId, match.id),
+        eq(tables.cards.type, "red"),
+        eq(tables.cards.revoked, false)
+      )
+    )
+    .all()
+  const red = [match.red1, match.red2, match.red3]
+  const blue = [match.blue1, match.blue2, match.blue3]
+  const zeroed = new Set<AllianceColor>()
+  for (const card of cards) {
+    if (red.includes(card.teamId)) zeroed.add("red")
+    if (blue.includes(card.teamId)) zeroed.add("blue")
+  }
+  return zeroed
+}
+
+/** a red card zeroes the alliance's whole score for that match (FRC-style) */
+function zeroTotals(totals: ScoreTotals): ScoreTotals {
+  return {
+    ...totals,
+    auto: 0,
+    teleop: 0,
+    endgame: 0,
+    penalty: 0,
+    bonus: 0,
+    total: 0,
+    breach: false,
+    capture: false,
+    boulders: 0,
+  }
+}
+
 export function recordScoreEvent(
   db: Db,
   input: {
@@ -102,8 +144,13 @@ export function recomputeMatchScore(db: Db, matchId: string) {
     states[e.alliance] = game.reduce(states[e.alliance], gameEvent)
   }
 
-  const redTotals = game.computeTotals(states.red, states.blue, match.type)
-  const blueTotals = game.computeTotals(states.blue, states.red, match.type)
+  let redTotals = game.computeTotals(states.red, states.blue, match.type)
+  let blueTotals = game.computeTotals(states.blue, states.red, match.type)
+
+  // a red card issued during this match zeroes that alliance's score
+  const zeroed = redCardedAlliances(db, match)
+  if (zeroed.has("red")) redTotals = zeroTotals(redTotals)
+  if (zeroed.has("blue")) blueTotals = zeroTotals(blueTotals)
 
   const redScore: CachedAllianceScore = { state: states.red, totals: redTotals }
   const blueScore: CachedAllianceScore = {

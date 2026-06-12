@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { tables } from "@/db"
 import type { Db } from "@/db"
 import { createTestDb } from "@/db/db.test"
@@ -96,8 +96,7 @@ describe("bracket templates", () => {
   it("every count 2-8 has 2N-2 matches and consumes each loser exactly once", () => {
     for (let n = 2; n <= 8; n++) {
       const template = bracketTemplate(n)
-      // 2 alliances degenerate to a single grand final
-      expect(template.length, `count ${n}`).toBe(n === 2 ? 1 : 2 * n - 2)
+      expect(template.length, `count ${n}`).toBe(2 * n - 2)
       const slots = new Set(template.map((m) => m.slot))
       expect(slots.size).toBe(template.length)
       // every non-final match's winner and loser are each consumed exactly
@@ -187,6 +186,42 @@ describe("bracket generation + advancement", () => {
     )!
     decide(f.id, f.redAllianceNumber === 1 ? "red" : "blue")
     expect(getBracket(db, eventId).champion?.number).toBe(1)
+  })
+
+  it("propagates an alliance backup into red4/blue4 of its unposted matches", () => {
+    setupAlliances(4)
+    generateBracket(db, eventId)
+    // M1 is seed1 (alliance 1, red) vs seed4 (alliance 4, blue)
+    const backup = createTeam(db, { number: 99, name: "Backup" })
+    db.update(tables.alliances)
+      .set({ backupTeamId: backup.id })
+      .where(
+        and(
+          eq(tables.alliances.eventId, eventId),
+          eq(tables.alliances.number, 1)
+        )
+      )
+      .run()
+    resolveBracket(db, eventId)
+
+    const m1 = playoffMatches(db, eventId).find((m) => m.bracketSlot === "M1")!
+    expect(m1.red4).toBe(backup.id) // alliance 1 sits on red
+    expect(m1.blue4).toBeNull() // alliance 4 has no backup
+
+    // removing the backup clears it back out
+    db.update(tables.alliances)
+      .set({ backupTeamId: null })
+      .where(
+        and(
+          eq(tables.alliances.eventId, eventId),
+          eq(tables.alliances.number, 1)
+        )
+      )
+      .run()
+    resolveBracket(db, eventId)
+    expect(
+      playoffMatches(db, eventId).find((m) => m.bracketSlot === "M1")!.red4
+    ).toBeNull()
   })
 
   it("rejects playoff ties at post time", () => {

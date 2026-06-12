@@ -10,14 +10,14 @@ export const listTeams = createServerFn()
 
 export const createTeam = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(
+  .validator(
     z.object({ number: z.number().int().positive(), name: z.string().min(1) })
   )
   .handler(({ data }) => teams.createTeam(db, data))
 
 export const updateTeam = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(
+  .validator(
     z.object({
       id: z.string(),
       number: z.number().int().positive().optional(),
@@ -28,22 +28,22 @@ export const updateTeam = createServerFn({ method: "POST" })
 
 export const deleteTeam = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(z.object({ id: z.string() }))
+  .validator(z.object({ id: z.string() }))
   .handler(({ data }) => teams.deleteTeam(db, data.id))
 
 export const addParticipant = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(z.object({ teamId: z.string(), name: z.string().min(1) }))
+  .validator(z.object({ teamId: z.string(), name: z.string().min(1) }))
   .handler(({ data }) => teams.addParticipant(db, data.teamId, data.name))
 
 export const removeParticipant = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(z.object({ id: z.string() }))
+  .validator(z.object({ id: z.string() }))
   .handler(({ data }) => teams.removeParticipant(db, data.id))
 
 export const provisionTeamAccount = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(
+  .validator(
     z.object({
       teamId: z.string(),
       password: z.string().min(4).max(64).optional(),

@@ -198,3 +198,69 @@ export function deleteMatch(db: Db, eventId: string, matchId: string) {
     tx.delete(tables.matches).where(eq(tables.matches.id, matchId)).run()
   })
 }
+
+/**
+ * Delete several matches in one transaction — all-or-nothing, so a single
+ * running or mismatched match rejects the whole batch rather than leaving a
+ * partial delete behind.
+ */
+export function deleteMatches(db: Db, eventId: string, matchIds: string[]) {
+  const ids = [...new Set(matchIds)]
+  if (ids.length === 0) return
+
+  return db.transaction((tx) => {
+    const event = getEvent(tx, eventId)
+    for (const matchId of ids) {
+      const match = getMatch(tx, matchId)
+      if (match.eventId !== eventId)
+        throw new Error("Match belongs to a different event")
+      if (match.status === "running")
+        throw new Error("Cannot delete a running match")
+    }
+    if (event.currentMatchId && ids.includes(event.currentMatchId)) {
+      tx.update(tables.events)
+        .set({ currentMatchId: null })
+        .where(eq(tables.events.id, eventId))
+        .run()
+    }
+    // score_events cascade on match delete (FK), so just remove the rows
+    for (const matchId of ids) {
+      tx.delete(tables.matches).where(eq(tables.matches.id, matchId)).run()
+    }
+  })
+}
+
+/**
+ * Persist a new play order. `orderedIds` must be a permutation of every match
+ * in the event; each match's `scheduledOrder` is rewritten to its new position
+ * (1-based). Match numbers/labels are left untouched — this only changes the
+ * sequence matches play in, not their identity.
+ */
+export function reorderMatches(db: Db, eventId: string, orderedIds: string[]) {
+  const existing = db
+    .select({ id: tables.matches.id })
+    .from(tables.matches)
+    .where(eq(tables.matches.eventId, eventId))
+    .all()
+
+  if (
+    orderedIds.length !== existing.length ||
+    new Set(orderedIds).size !== orderedIds.length
+  ) {
+    throw new Error("Reorder must list every match in the event exactly once")
+  }
+  const existingIds = new Set(existing.map((m) => m.id))
+  for (const id of orderedIds) {
+    if (!existingIds.has(id))
+      throw new Error("Match belongs to a different event")
+  }
+
+  return db.transaction((tx) => {
+    orderedIds.forEach((id, i) => {
+      tx.update(tables.matches)
+        .set({ scheduledOrder: i + 1 })
+        .where(eq(tables.matches.id, id))
+        .run()
+    })
+  })
+}

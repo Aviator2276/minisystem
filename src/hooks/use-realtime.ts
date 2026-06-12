@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { ServerMessage } from "@/shared/realtime-messages"
 import { getRealtimeClient } from "./realtime-client"
+import type { ConnectionStatus } from "./realtime-client"
 
 export function useRealtime(
   topics: string[],
@@ -22,4 +23,24 @@ export function useRealtime(
       client.removeListener(listener)
     }
   }, [key])
+}
+
+/**
+ * Live WebSocket connection state plus a manual reconnect. Defaults to "open"
+ * so SSR / pre-mount renders stay quiet (gate UI on a mounted flag if needed).
+ */
+export function useRealtimeStatus(): {
+  status: ConnectionStatus
+  reconnect: () => void
+} {
+  const [status, setStatus] = useState<ConnectionStatus>("open")
+
+  useEffect(() => {
+    const client = getRealtimeClient()
+    setStatus(client.getStatus())
+    return client.onStatus(setStatus)
+  }, [])
+
+  const reconnect = useCallback(() => getRealtimeClient().reconnect(), [])
+  return { status, reconnect }
 }

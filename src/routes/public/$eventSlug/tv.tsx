@@ -42,7 +42,8 @@ function TvMode() {
     if (
       message.type === "score_update" ||
       message.type === "bracket_update" ||
-      message.type === "settings_update"
+      message.type === "settings_update" ||
+      message.type === "cards_update"
     ) {
       void router.invalidate()
     }
@@ -87,7 +88,7 @@ function TvMode() {
           {panels.map((p, i) => (
             <div
               key={p}
-              className={`size-2 rounded-full transition-colors duration-300 ${
+              className={`size-2 transition-colors duration-300 ${
                 i === index % panels.length ? "bg-foreground" : "bg-muted"
               }`}
             />
@@ -236,9 +237,11 @@ function TvUpNext({
     red1: string | null
     red2: string | null
     red3: string | null
+    red4: string | null
     blue1: string | null
     blue2: string | null
     blue3: string | null
+    blue4: string | null
     redPoints: number | null
     bluePoints: number | null
   }[]
@@ -256,15 +259,15 @@ function TvUpNext({
   const lastPosted = [...matches].reverse().find((m) => m.status === "posted")
 
   const label = matchLongLabel
-  const lineup = (m: typeof next, side: "red" | "blue") =>
-    m
-      ? (side === "red"
-          ? [m.red1, m.red2, m.red3]
-          : [m.blue1, m.blue2, m.blue3]
-        )
-          .map((id) => (id ? (numbers.get(id) ?? "?") : "—"))
-          .join("  ")
-      : ""
+  const lineup = (m: typeof next, side: "red" | "blue") => {
+    if (!m) return ""
+    const base =
+      side === "red" ? [m.red1, m.red2, m.red3] : [m.blue1, m.blue2, m.blue3]
+    const backup = side === "red" ? m.red4 : m.blue4
+    // append the backup robot only when one is assigned
+    const ids = backup ? [...base, backup] : base
+    return ids.map((id) => (id ? (numbers.get(id) ?? "?") : "—")).join("  ")
+  }
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-10">
@@ -316,7 +319,9 @@ function TvUpNext({
         >
           Last result: {label(lastPosted)} —{" "}
           {order
-            .map((s) => (s === "red" ? lastPosted.redPoints : lastPosted.bluePoints))
+            .map((s) =>
+              s === "red" ? lastPosted.redPoints : lastPosted.bluePoints
+            )
             .join("–")}
         </motion.p>
       )}

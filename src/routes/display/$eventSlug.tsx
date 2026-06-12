@@ -165,6 +165,9 @@ function DisplayScreen() {
       case "settings_update":
         void router.invalidate() // alliance order rides the loader too
         break
+      case "cards_update":
+        void router.invalidate() // team card graphics ride the loader
+        break
       case "toast":
         if (
           message.message !== "Do not enter the field" &&
@@ -375,9 +378,11 @@ function winnerTeamNumbers(
     red1: string | null
     red2: string | null
     red3: string | null
+    red4: string | null
     blue1: string | null
     blue2: string | null
     blue3: string | null
+    blue4: string | null
   },
   teams: { teamId: string; number: number }[]
 ): number[] {
@@ -385,8 +390,8 @@ function winnerTeamNumbers(
   const numbers = new Map(teams.map((t) => [t.teamId, t.number]))
   const ids =
     match.winner === "red"
-      ? [match.red1, match.red2, match.red3]
-      : [match.blue1, match.blue2, match.blue3]
+      ? [match.red1, match.red2, match.red3, match.red4]
+      : [match.blue1, match.blue2, match.blue3, match.blue4]
   return ids.flatMap((id) => {
     const n = id ? numbers.get(id) : undefined
     return n === undefined ? [] : [n]
@@ -411,7 +416,7 @@ function FieldBorder({
     <>
       <div className="pointer-events-none fixed top-0 left-1/2 z-50 -translate-x-1/2">
         <motion.div
-          className="rounded-b px-4 py-0.5 text-xs font-bold tracking-widest text-white"
+          className="px-4 py-0.5 text-xs font-bold tracking-widest text-white"
           animate={{ backgroundColor: notchColor }}
           transition={{ duration: 0.4 }}
         >
@@ -635,9 +640,11 @@ function LineupView({
     red1: string | null
     red2: string | null
     red3: string | null
+    red4: string | null
     blue1: string | null
     blue2: string | null
     blue3: string | null
+    blue4: string | null
   } | null
   teams: {
     teamId: string
@@ -650,6 +657,9 @@ function LineupView({
   const byId = new Map(teams.map((t) => [t.teamId, t]))
   const lineup = (ids: (string | null)[]) =>
     ids.map((id) => (id ? (byId.get(id) ?? null) : null))
+  // include the backup robot as a 4th row only when one is assigned
+  const rosterIds = (base: (string | null)[], backup: string | null) =>
+    backup ? [...base, backup] : base
 
   const sideConfig: Record<
     Alliance,
@@ -664,21 +674,27 @@ function LineupView({
       side: "red",
       color: "var(--alliance-red)",
       label: "Red Alliance",
-      teams: lineup([
-        current?.red1 ?? null,
-        current?.red2 ?? null,
-        current?.red3 ?? null,
-      ]),
+      teams: lineup(
+        rosterIds(
+          [current?.red1 ?? null, current?.red2 ?? null, current?.red3 ?? null],
+          current?.red4 ?? null
+        )
+      ),
     },
     blue: {
       side: "blue",
       color: "var(--alliance-blue)",
       label: "Blue Alliance",
-      teams: lineup([
-        current?.blue1 ?? null,
-        current?.blue2 ?? null,
-        current?.blue3 ?? null,
-      ]),
+      teams: lineup(
+        rosterIds(
+          [
+            current?.blue1 ?? null,
+            current?.blue2 ?? null,
+            current?.blue3 ?? null,
+          ],
+          current?.blue4 ?? null
+        )
+      ),
     },
   }
   // left slides in from the left, right from the right
@@ -730,8 +746,18 @@ function LineupView({
                     {team?.number ?? "—"}
                   </div>
                   <div className="flex min-w-0 flex-col gap-1">
-                    <div className="truncate text-2xl font-semibold">
-                      {team?.name ?? "Empty slot"}
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-2xl font-semibold">
+                        {team?.name ?? "Empty slot"}
+                      </span>
+                      {sideTeams.length === 4 && i === 3 && (
+                        <span
+                          className="shrink-0 px-1.5 py-0.5 text-xs font-bold tracking-wide uppercase"
+                          style={{ color, border: `1px solid ${color}` }}
+                        >
+                          Backup
+                        </span>
+                      )}
                     </div>
                     {team && team.participants.length > 0 && (
                       <div className="truncate text-base text-white/60">
@@ -829,7 +855,7 @@ function RankingsView({
             {Array.from({ length: pageCount }).map((_, i) => (
               <div
                 key={i}
-                className="h-2 w-2 rounded-full transition-colors duration-300"
+                className="h-2 w-2 transition-colors duration-300"
                 style={{
                   backgroundColor:
                     i === page ? "white" : "rgb(255 255 255 / 0.25)",

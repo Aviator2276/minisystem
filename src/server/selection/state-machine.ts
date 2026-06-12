@@ -4,7 +4,9 @@
  * read, which makes the process restart-safe and trivially undoable.
  *
  * Rules (MiniFRC):
- * - N alliances, N = floor(teams / 3) unless overridden.
+ * - N alliances, N = min(8, floor(teams / 3)) unless overridden. Capped at 8
+ *   to match the FRC playoff bracket (see MAX_PLAYOFF_ALLIANCES); surplus
+ *   teams sit out the bracket rather than forming a 9th+ alliance.
  * - Captains are the top-N ranked teams, assigned lazily: a captain slot is
  *   only locked when its alliance comes up to pick. Until then the team is a
  *   provisional captain and may be invited by a higher alliance — accepting
@@ -42,8 +44,11 @@ export interface SelectionState {
   available: string[]
 }
 
+/** Hard cap on playoff alliances — the bracket templates top out at 8. */
+export const MAX_PLAYOFF_ALLIANCES = 8
+
 export function allianceCountFor(teamCount: number): number {
-  return Math.max(1, Math.floor(teamCount / 3))
+  return Math.min(MAX_PLAYOFF_ALLIANCES, Math.max(1, Math.floor(teamCount / 3)))
 }
 
 export class SelectionError extends Error {}

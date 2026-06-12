@@ -31,28 +31,24 @@ export function SectionCards({
       value: teamCount,
       icon: <UsersIcon />,
       footer: "Registered globally",
-      detail: "Reusable across events",
     },
     {
       description: "Events",
       value: eventCount,
       icon: <TrophyIcon />,
       footer: "Created so far",
-      detail: "Each with its own quals and playoffs",
     },
     {
       description: "Matches posted",
       value: postedMatchCount,
       icon: <ListChecksIcon />,
       footer: "Results saved",
-      detail: "Counted toward rankings",
     },
     {
       description: "Scoring events",
       value: scoreEventCount,
       icon: <ActivityIcon />,
       footer: "Recorded by scorers",
-      detail: "Timestamped event log",
     },
   ]
 

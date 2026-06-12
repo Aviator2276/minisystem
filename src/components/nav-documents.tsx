@@ -47,8 +47,20 @@ export function NavEvents({
                 params={{ eventSlug: event.slug }}
               >
                 <TrophyIcon />
-                <span>{event.name}</span>
-                <Badge variant="outline" className="ml-auto text-[0.6rem]">
+                {/* name truncates so a long status badge can't force a wrap;
+                    on row hover/focus it scrolls the full name into view */}
+                <span
+                  title={event.name}
+                  className="[container-type:inline-size] relative min-w-0 flex-1 overflow-hidden"
+                >
+                  <span className="block w-max max-w-full truncate transition-transform duration-[3000ms] ease-linear group-focus-within/menu-button:max-w-none group-focus-within/menu-button:translate-x-[min(0px,calc(100cqw_-_100%))] group-hover/menu-button:max-w-none group-hover/menu-button:translate-x-[min(0px,calc(100cqw_-_100%))]">
+                    {event.name}
+                  </span>
+                </span>
+                <Badge
+                  variant="outline"
+                  className="ml-auto shrink-0 text-[0.6rem]"
+                >
                   {event.status.replace("_", " ")}
                 </Badge>
               </Link>

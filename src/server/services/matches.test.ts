@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm"
 import { beforeEach, describe, expect, it } from "vitest"
 import { tables } from "@/db"
 import type { Db } from "@/db"
@@ -6,8 +7,10 @@ import { attachTeams, createEvent } from "./events"
 import {
   createCustomMatch,
   deleteMatch,
+  deleteMatches,
   generateMoreQualMatches,
   listMatches,
+  reorderMatches,
 } from "./matches"
 import { computeRankings } from "./rankings"
 import { createTeam } from "./teams"
@@ -19,8 +22,9 @@ let teamIds: string[]
 beforeEach(() => {
   db = createTestDb()
   eventId = createEvent(db, { name: "Matches Test" }).id
-  teamIds = Array.from({ length: 6 }, (_, i) =>
-    createTeam(db, { number: i + 1, name: `T${i + 1}` }).id
+  teamIds = Array.from(
+    { length: 6 },
+    (_, i) => createTeam(db, { number: i + 1, name: `T${i + 1}` }).id
   )
   attachTeams(db, eventId, teamIds)
 })
@@ -91,6 +95,98 @@ describe("deleteMatch", () => {
       .returning()
       .get()
     expect(() => deleteMatch(db, eventId, running.id)).toThrow(/running/)
+  })
+})
+
+describe("deleteMatches", () => {
+  it("removes several matches in one call", () => {
+    const a = createCustomMatch(db, eventId, {
+      matchType: "practice",
+      red: [teamIds[0], null, null],
+      blue: [teamIds[1], null, null],
+    })
+    const b = createCustomMatch(db, eventId, {
+      matchType: "practice",
+      red: [teamIds[2], null, null],
+      blue: [teamIds[3], null, null],
+    })
+    const c = createCustomMatch(db, eventId, {
+      matchType: "practice",
+      red: [teamIds[4], null, null],
+      blue: [teamIds[5], null, null],
+    })
+    deleteMatches(db, eventId, [a.id, c.id])
+    expect(listMatches(db, eventId).map((m) => m.id)).toEqual([b.id])
+  })
+
+  it("is all-or-nothing: a running match rejects the whole batch", () => {
+    const ok = createCustomMatch(db, eventId, {
+      matchType: "practice",
+      red: [teamIds[0], null, null],
+      blue: [teamIds[1], null, null],
+    })
+    const running = db
+      .insert(tables.matches)
+      .values({
+        eventId,
+        type: "qualification",
+        number: 1,
+        scheduledOrder: 99,
+        status: "running",
+      })
+      .returning()
+      .get()
+    expect(() => deleteMatches(db, eventId, [ok.id, running.id])).toThrow(
+      /running/
+    )
+    // the deletable match must still be there — nothing was committed
+    expect(
+      listMatches(db, eventId)
+        .map((m) => m.id)
+        .sort()
+    ).toEqual([ok.id, running.id].sort())
+  })
+
+  it("clears the field's queued match when it is deleted", () => {
+    const match = createCustomMatch(db, eventId, {
+      matchType: "practice",
+      red: [teamIds[0], null, null],
+      blue: [teamIds[1], null, null],
+    })
+    db.update(tables.events)
+      .set({ currentMatchId: match.id })
+      .where(eq(tables.events.id, eventId))
+      .run()
+    deleteMatches(db, eventId, [match.id])
+    const event = db
+      .select()
+      .from(tables.events)
+      .where(eq(tables.events.id, eventId))
+      .get()
+    expect(event?.currentMatchId).toBeNull()
+  })
+})
+
+describe("reorderMatches", () => {
+  it("rewrites scheduledOrder to match the new sequence", () => {
+    generateMoreQualMatches(db, eventId, 2)
+    const before = listMatches(db, eventId)
+    expect(before).toHaveLength(2)
+    // listMatches sorts by scheduledOrder, so reverse the ids to flip them
+    const flipped = [before[1].id, before[0].id]
+    reorderMatches(db, eventId, flipped)
+    const after = listMatches(db, eventId)
+    expect(after.map((m) => m.id)).toEqual(flipped)
+    expect(after.map((m) => m.scheduledOrder)).toEqual([1, 2])
+  })
+
+  it("rejects a list that isn't a full permutation of the event's matches", () => {
+    generateMoreQualMatches(db, eventId, 2)
+    const ids = listMatches(db, eventId).map((m) => m.id)
+    expect(() => reorderMatches(db, eventId, [ids[0]])).toThrow(/every match/)
+    expect(() => reorderMatches(db, eventId, [ids[0], ids[0]])).toThrow(
+      /every match/
+    )
   })
 })
 

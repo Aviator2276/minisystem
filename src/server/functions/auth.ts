@@ -2,8 +2,6 @@ import { createServerFn } from "@tanstack/react-start"
 import {
   deleteCookie,
   getCookie,
-  getRequestHeader,
-  getRequestIP,
   setCookie,
   setResponseHeader,
   setResponseStatus,
@@ -24,24 +22,12 @@ import {
   getSessionUser,
 } from "@/server/auth/session"
 import type { SessionUser } from "@/server/auth/session"
+import { clientIp, publicRateLimit } from "@/server/rate-limit/middleware"
 
 const credentialsSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
 })
-
-/** best-effort client IP for rate limiting; falls back so it never throws */
-function clientIp(): string {
-  try {
-    return (
-      getRequestIP({ xForwardedFor: true }) ??
-      getRequestHeader("x-real-ip") ??
-      "unknown"
-    )
-  } catch {
-    return "unknown"
-  }
-}
 
 function formatRetry(seconds: number): string {
   if (seconds >= 60) {
@@ -52,9 +38,10 @@ function formatRetry(seconds: number): string {
 }
 
 export const login = createServerFn({ method: "POST" })
-  .inputValidator(credentialsSchema)
+  .middleware([publicRateLimit])
+  .validator(credentialsSchema)
   .handler(({ data }): SessionUser => {
-    const ip = clientIp()
+    const ip = clientIp() ?? "unknown"
     const limit = checkLoginRateLimit(ip, data.username)
     if (limit.blocked) {
       setResponseHeader("Retry-After", String(limit.retryAfterSeconds))
@@ -91,14 +78,16 @@ export const login = createServerFn({ method: "POST" })
     }
   })
 
-export const logout = createServerFn({ method: "POST" }).handler(() => {
-  destroySession(getCookie(SESSION_COOKIE))
-  deleteCookie(SESSION_COOKIE, { path: "/" })
-  return null
-})
+export const logout = createServerFn({ method: "POST" })
+  .middleware([publicRateLimit])
+  .handler(() => {
+    destroySession(getCookie(SESSION_COOKIE))
+    deleteCookie(SESSION_COOKIE, { path: "/" })
+    return null
+  })
 
-export const getCurrentUser = createServerFn().handler(
-  (): SessionUser | null => {
+export const getCurrentUser = createServerFn()
+  .middleware([publicRateLimit])
+  .handler((): SessionUser | null => {
     return getSessionUser(getCookie(SESSION_COOKIE))
-  }
-)
+  })

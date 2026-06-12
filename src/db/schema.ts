@@ -6,6 +6,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core"
 import { nanoid } from "nanoid"
+import type { CardType } from "@/shared/cards"
 import type { JsonObject } from "@/shared/json"
 
 const id = () =>
@@ -130,9 +131,12 @@ export const matches = sqliteTable(
     red1: text("red1").references(() => teams.id),
     red2: text("red2").references(() => teams.id),
     red3: text("red3").references(() => teams.id),
+    // playoff backup robot (4th team); display/roster only — not a scoring robot
+    red4: text("red4").references(() => teams.id),
     blue1: text("blue1").references(() => teams.id),
     blue2: text("blue2").references(() => teams.id),
     blue3: text("blue3").references(() => teams.id),
+    blue4: text("blue4").references(() => teams.id),
     redAllianceId: text("red_alliance_id").references(() => alliances.id),
     blueAllianceId: text("blue_alliance_id").references(() => alliances.id),
     status: text("status").$type<MatchStatus>().notNull().default("scheduled"),
@@ -180,6 +184,35 @@ export const scoreEvents = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [index("score_events_match_idx").on(t.matchId)]
+)
+
+// Disciplinary cards, scoped to an event (they reset between events). Yellow
+// and red are stored as individual rows; `src/server/services/cards.ts` derives
+// per-team totals and disqualification (2 yellows count as a red; 2 reds = DQ).
+export const cards = sqliteTable(
+  "cards",
+  {
+    id: id(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id),
+    type: text("type").$type<CardType>().notNull(),
+    reason: text("reason").notNull().default(""),
+    // set when a red card zeroed an alliance's score during a live match, so
+    // the effect can be recomputed/undone; null for purely disciplinary cards
+    matchId: text("match_id").references(() => matches.id, {
+      onDelete: "set null",
+    }),
+    revoked: integer("revoked", { mode: "boolean" }).notNull().default(false),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("cards_event_idx").on(t.eventId)]
 )
 
 export const alliances = sqliteTable(

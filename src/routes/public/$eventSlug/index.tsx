@@ -1,6 +1,7 @@
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
 import { SelectionBoard } from "@/components/selection-board"
+import { TeamCards } from "@/components/team-cards"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -40,7 +41,8 @@ function PublicEventPage() {
       message.type === "selection_update" ||
       message.type === "bracket_update" ||
       message.type === "match_state" ||
-      message.type === "settings_update"
+      message.type === "settings_update" ||
+      message.type === "cards_update"
     ) {
       void router.invalidate()
     }
@@ -109,28 +111,41 @@ function PublicEventPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {boot.rankings.map((row) => (
-                <TableRow key={row.teamId}>
-                  <TableCell className="font-bold tabular-nums">
-                    {row.rank}
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-mono font-bold">{row.number}</span>{" "}
-                    {row.name}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {row.matchesPlayed > 0
-                      ? (row.rp / row.matchesPlayed).toFixed(2)
-                      : "0.00"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {row.wins}-{row.losses}-{row.ties}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {row.matchesPlayed}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {boot.rankings.map((row) => {
+                const cards = teamById.get(row.teamId)?.cards
+                return (
+                  <TableRow
+                    key={row.teamId}
+                    className={cn(cards?.disqualified && "opacity-50")}
+                  >
+                    <TableCell className="font-bold tabular-nums">
+                      {row.rank}
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>
+                          <span className="font-mono font-bold">
+                            {row.number}
+                          </span>{" "}
+                          {row.name}
+                        </span>
+                        {cards && <TeamCards cards={cards} size="sm" />}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {row.matchesPlayed > 0
+                        ? (row.rp / row.matchesPlayed).toFixed(2)
+                        : "0.00"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {row.wins}-{row.losses}-{row.ties}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {row.matchesPlayed}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </TabsContent>
@@ -146,9 +161,15 @@ function PublicEventPage() {
             </TableHeader>
             <TableBody>
               {boot.teams.map((team) => (
-                <TableRow key={team.teamId}>
+                <TableRow
+                  key={team.teamId}
+                  className={cn(team.cards.disqualified && "opacity-50")}
+                >
                   <TableCell className="font-mono font-bold">
-                    {team.number}
+                    <span className="inline-flex items-center gap-1.5">
+                      {team.number}
+                      <TeamCards cards={team.cards} size="sm" />
+                    </span>
                   </TableCell>
                   <TableCell>{team.name}</TableCell>
                   <TableCell className="text-muted-foreground">
@@ -219,7 +240,10 @@ function MatchRow({
       </Badge>
       <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1">
         {order.map((side, idx) => (
-          <span key={side} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span
+            key={side}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1"
+          >
             {idx > 0 && (
               <span className="text-xs font-medium text-muted-foreground">
                 vs
@@ -229,8 +253,8 @@ function MatchRow({
               color={side}
               teamIds={
                 side === "red"
-                  ? [match.red1, match.red2, match.red3]
-                  : [match.blue1, match.blue2, match.blue3]
+                  ? [match.red1, match.red2, match.red3, match.red4]
+                  : [match.blue1, match.blue2, match.blue3, match.blue4]
               }
               teamById={teamById}
             />
@@ -269,17 +293,22 @@ function AllianceTeams({
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5">
       {teams.map((team) => (
-        <Badge
-          key={team.teamId}
-          variant="outline"
-          className="font-mono font-semibold tabular-nums"
-          style={style}
-          title={team.name}
-        >
-          {team.number}
-        </Badge>
+        <span key={team.teamId} className="inline-flex items-center gap-1">
+          <Badge
+            variant="outline"
+            className={cn(
+              "font-mono font-semibold tabular-nums",
+              team.cards.disqualified && "line-through opacity-50"
+            )}
+            style={style}
+            title={team.name}
+          >
+            {team.number}
+          </Badge>
+          <TeamCards cards={team.cards} size="sm" />
+        </span>
       ))}
     </div>
   )
@@ -306,7 +335,9 @@ function MatchStatusBadge({
     return (
       <Badge variant="outline" className="font-mono tabular-nums">
         {order
-          .map((s) => (s === "red" ? (match.redPoints ?? 0) : (match.bluePoints ?? 0)))
+          .map((s) =>
+            s === "red" ? (match.redPoints ?? 0) : (match.bluePoints ?? 0)
+          )
           .join("–")}
       </Badge>
     )

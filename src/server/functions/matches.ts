@@ -6,12 +6,12 @@ import * as matches from "@/server/services/matches"
 
 export const listMatches = createServerFn()
   .middleware([requireUser])
-  .inputValidator(z.object({ eventId: z.string() }))
+  .validator(z.object({ eventId: z.string() }))
   .handler(({ data }) => matches.listMatches(db, data.eventId))
 
 export const regenerateQualSchedule = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(
+  .validator(
     z.object({
       eventId: z.string(),
       roundsPerTeam: z.number().int().min(1).max(12),
@@ -23,7 +23,7 @@ export const regenerateQualSchedule = createServerFn({ method: "POST" })
 
 export const generateMoreQualMatches = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(
+  .validator(
     z.object({
       eventId: z.string(),
       additionalRounds: z.number().int().min(1).max(12),
@@ -35,7 +35,7 @@ export const generateMoreQualMatches = createServerFn({ method: "POST" })
 
 export const createCustomMatch = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(
+  .validator(
     z.object({
       eventId: z.string(),
       matchType: z.enum(["qualification", "practice"]),
@@ -53,5 +53,25 @@ export const createCustomMatch = createServerFn({ method: "POST" })
 
 export const deleteMatch = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(z.object({ eventId: z.string(), matchId: z.string() }))
+  .validator(z.object({ eventId: z.string(), matchId: z.string() }))
   .handler(({ data }) => matches.deleteMatch(db, data.eventId, data.matchId))
+
+export const deleteMatches = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .validator(
+    z.object({ eventId: z.string(), matchIds: z.array(z.string()).min(1) })
+  )
+  .handler(({ data }) => {
+    matches.deleteMatches(db, data.eventId, data.matchIds)
+    return { deleted: data.matchIds.length }
+  })
+
+export const reorderMatches = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .validator(
+    z.object({ eventId: z.string(), orderedIds: z.array(z.string()).min(1) })
+  )
+  .handler(({ data }) => {
+    matches.reorderMatches(db, data.eventId, data.orderedIds)
+    return { ok: true }
+  })

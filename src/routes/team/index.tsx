@@ -1,7 +1,17 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
-import { PolarAngleAxis, PolarGrid, Radar, RadarChart } from "recharts"
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -40,6 +50,11 @@ import { topicFor } from "@/shared/realtime-messages"
 
 const chartConfig = {
   value: { label: "vs event best", color: "var(--primary)" },
+} satisfies ChartConfig
+
+const pointsConfig = {
+  own: { label: "Your alliance", color: "var(--chart-1)" },
+  opp: { label: "Opponent", color: "var(--chart-2)" },
 } satisfies ChartConfig
 
 export const Route = createFileRoute("/team/")({
@@ -84,6 +99,22 @@ function TeamDashboard() {
       </Card>
     )
   }
+
+  // the points chart + headline stats only consider scored matches
+  const played = data.schedule.filter((r) => r.ownPoints !== null)
+  const pointsData = played.map((r) => ({
+    label: r.label,
+    own: r.ownPoints ?? 0,
+    opp: r.oppPoints ?? 0,
+  }))
+  const avgOwn = played.length
+    ? Math.round(
+        played.reduce((s, r) => s + (r.ownPoints ?? 0), 0) / played.length
+      )
+    : 0
+  const highOwn = played.length
+    ? Math.max(...played.map((r) => r.ownPoints ?? 0))
+    : 0
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4">
@@ -214,17 +245,18 @@ function TeamDashboard() {
         <Card>
           <CardHeader>
             <CardTitle>Performance profile</CardTitle>
-            <CardDescription>
-              Alliance-level averages, scaled to the event's best (your alliance
-              shares credit — three teams play each match together)
-            </CardDescription>
+            <CardDescription>Alliance-level average</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer
               config={chartConfig}
-              className="mx-auto aspect-square max-h-72"
+              className="mx-auto aspect-square max-h-72 w-full"
             >
-              <RadarChart data={data.radar}>
+              <RadarChart
+                data={data.radar}
+                outerRadius="70%"
+                margin={{ top: 16, right: 16, bottom: 16, left: 16 }}
+              >
                 <ChartTooltip
                   cursor={false}
                   content={
@@ -237,7 +269,10 @@ function TeamDashboard() {
                   }
                 />
                 <PolarGrid />
-                <PolarAngleAxis dataKey="axis" />
+                <PolarAngleAxis
+                  dataKey="axis"
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                />
                 <Radar
                   dataKey="value"
                   fill="var(--color-value)"
@@ -251,28 +286,97 @@ function TeamDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Schedule & results</CardTitle>
-            <CardDescription>{data.event.name}</CardDescription>
+            <CardTitle>Points by match</CardTitle>
+            <CardDescription>
+              {played.length > 0
+                ? `Avg ${avgOwn} · High ${highOwn} · ${played.length} scored`
+                : "No scored matches yet"}
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
+            {played.length > 0 ? (
+              <ChartContainer
+                config={pointsConfig}
+                className="aspect-video max-h-72 w-full"
+              >
+                <LineChart
+                  data={pointsData}
+                  margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
+                >
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis
+                    width={28}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line
+                    dataKey="own"
+                    type="monotone"
+                    stroke="var(--color-own)"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                  <Line
+                    dataKey="opp"
+                    type="monotone"
+                    stroke="var(--color-opp)"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    dot={false}
+                  />
+                </LineChart>
+              </ChartContainer>
+            ) : (
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                Your points will chart here once matches are scored.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Schedule & results</CardTitle>
+          <CardDescription>
+            {data.schedule.length} match
+            {data.schedule.length === 1 ? "" : "es"} · {data.event.name}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Match</TableHead>
+                <TableHead>Side</TableHead>
+                <TableHead className="text-right">Score</TableHead>
+                <TableHead className="text-right">Margin</TableHead>
+                <TableHead>Result</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.schedule.length === 0 && (
                 <TableRow>
-                  <TableHead>Match</TableHead>
-                  <TableHead>Side</TableHead>
-                  <TableHead>Score</TableHead>
-                  <TableHead>Result</TableHead>
+                  <TableCell colSpan={5} className="text-muted-foreground">
+                    No matches scheduled yet.
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.schedule.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-muted-foreground">
-                      No matches scheduled yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-                {data.schedule.map((row) => (
+              )}
+              {data.schedule.map((row) => {
+                const diff =
+                  row.ownPoints !== null
+                    ? row.ownPoints - (row.oppPoints ?? 0)
+                    : null
+                return (
                   <TableRow key={row.matchId}>
                     <TableCell className="font-medium">{row.label}</TableCell>
                     <TableCell>
@@ -288,10 +392,27 @@ function TeamDashboard() {
                         {row.side.toUpperCase()}
                       </span>
                     </TableCell>
-                    <TableCell className="font-mono tabular-nums">
+                    <TableCell className="text-right font-mono tabular-nums">
                       {row.ownPoints !== null
                         ? `${row.ownPoints}–${row.oppPoints}`
                         : "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {diff !== null ? (
+                        <span
+                          className={
+                            diff > 0
+                              ? "text-emerald-600"
+                              : diff < 0
+                                ? "text-destructive"
+                                : "text-muted-foreground"
+                          }
+                        >
+                          {diff > 0 ? `+${diff}` : diff}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell>
                       {row.result ? (
@@ -311,12 +432,12 @@ function TeamDashboard() {
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -24,6 +24,12 @@ describe("alliance count", () => {
     expect(allianceCountFor(24)).toBe(8)
     expect(allianceCountFor(11)).toBe(3) // 2 spare teams
   })
+
+  it("caps at 8 alliances no matter how many teams", () => {
+    expect(allianceCountFor(27)).toBe(8) // would be 9 uncapped
+    expect(allianceCountFor(30)).toBe(8)
+    expect(allianceCountFor(48)).toBe(8) // would be 16 uncapped
+  })
 })
 
 describe("selection state machine", () => {

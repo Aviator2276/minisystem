@@ -6,12 +6,12 @@ import * as selection from "@/server/services/selection"
 
 export const getSelection = createServerFn()
   .middleware([requireUser])
-  .inputValidator(z.object({ eventId: z.string() }))
+  .validator(z.object({ eventId: z.string() }))
   .handler(({ data }) => selection.getSelectionState(db, data.eventId))
 
 export const selectionInvite = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(z.object({ eventId: z.string(), teamId: z.string() }))
+  .validator(z.object({ eventId: z.string(), teamId: z.string() }))
   .handler(({ data, context }) =>
     selection.applySelectionAction(
       db,
@@ -23,7 +23,7 @@ export const selectionInvite = createServerFn({ method: "POST" })
 
 export const selectionUndo = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(z.object({ eventId: z.string() }))
+  .validator(z.object({ eventId: z.string() }))
   .handler(({ data, context }) =>
     selection.applySelectionAction(
       db,
@@ -34,12 +34,33 @@ export const selectionUndo = createServerFn({ method: "POST" })
   )
 
 /**
+ * Add or clear an alliance's playoff backup robot. `teamId: null` removes it.
+ */
+export const setSelectionBackup = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .validator(
+    z.object({
+      eventId: z.string(),
+      allianceNumber: z.number().int().positive(),
+      teamId: z.string().nullable(),
+    })
+  )
+  .handler(({ data }) =>
+    selection.setAllianceBackup(
+      db,
+      data.eventId,
+      data.allianceNumber,
+      data.teamId
+    )
+  )
+
+/**
  * Accept/decline the pending invitation. Admins can respond on a team's
  * behalf; a team account may only respond to its own invitation.
  */
 export const selectionRespond = createServerFn({ method: "POST" })
   .middleware([requireUser])
-  .inputValidator(
+  .validator(
     z.object({ eventId: z.string(), response: z.enum(["accept", "decline"]) })
   )
   .handler(({ data, context }) => {

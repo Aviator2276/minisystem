@@ -6,10 +6,12 @@ import {
   FlagIcon,
   HandshakeIcon,
   ListOrderedIcon,
+  RectangleVerticalIcon,
   SwordsIcon,
   TrophyIcon,
   UsersIcon,
   VideoIcon,
+  XIcon,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
@@ -34,6 +36,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -42,7 +53,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { TeamCards } from "@/components/team-cards"
 import { useRealtime } from "@/hooks/use-realtime"
 import { useServerClock } from "@/hooks/use-server-clock"
 import type { FieldState } from "@/server/engine/match-engine"
@@ -58,6 +72,7 @@ import {
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
 import { SelectionBoard } from "@/components/selection-board"
 import { setDisplayView } from "@/server/functions/display"
+import { issueCard, listCards, revokeCard } from "@/server/functions/cards"
 import { getJudgeStatus } from "@/server/functions/judges"
 import type { JudgeStatus } from "@/server/judges/registry"
 import { postMatch } from "@/server/functions/scoring"
@@ -72,34 +87,56 @@ import {
   selectionInvite,
   selectionRespond,
   selectionUndo,
+  setSelectionBackup,
 } from "@/server/functions/selection"
-import { setFlipAllianceSides } from "@/server/functions/events"
+import { listEventTeams, setFlipAllianceSides } from "@/server/functions/events"
 import type { EnrichedSelectionState } from "@/server/services/selection"
 import type { CachedAllianceScore } from "@/server/services/scoring"
 import { allianceOrder } from "@/shared/alliance"
 import type { Alliance } from "@/shared/alliance"
-import { matchShortLabel } from "@/shared/match-format"
+import { cardStateFrom } from "@/shared/cards"
+import type { CardType, TeamCardState } from "@/shared/cards"
+import { matchShortLabel, sortMatchesByType } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ServerMessage } from "@/shared/realtime-messages"
 
 export const Route = createFileRoute("/admin/events/$eventSlug/control")({
   loader: async ({ context }) => {
-    const [field, matches, selection, bracket, judgeStatus] = await Promise.all(
-      [
+    const [field, matches, selection, bracket, judgeStatus, roster, cards] =
+      await Promise.all([
         getFieldState({ data: { eventId: context.event.id } }),
         listMatches({ data: { eventId: context.event.id } }),
         getSelection({ data: { eventId: context.event.id } }),
         getBracketView({ data: { eventId: context.event.id } }),
         getJudgeStatus({ data: { eventId: context.event.id } }),
-      ]
-    )
-    return { field, matches, selection, bracket, judgeStatus }
+        listEventTeams({ data: { eventId: context.event.id } }),
+        listCards({ data: { eventId: context.event.id } }),
+      ])
+    return { field, matches, selection, bracket, judgeStatus, roster, cards }
   },
   component: ControlPanel,
 })
 
 type Totals = Extract<ServerMessage, { type: "score_update" }>["red"]
 type MatchRow = Awaited<ReturnType<typeof listMatches>>[number]
+type RosterTeam = Awaited<ReturnType<typeof listEventTeams>>[number]
+type CardRow = Awaited<ReturnType<typeof listCards>>[number]
+
+/** per-team card state from a flat card list, for the control panel */
+function cardStatesByTeam(cards: CardRow[]): Map<string, TeamCardState> {
+  const counts = new Map<string, { yellows: number; reds: number }>()
+  for (const card of cards) {
+    const entry = counts.get(card.teamId) ?? { yellows: 0, reds: 0 }
+    if (card.type === "yellow") entry.yellows += 1
+    else entry.reds += 1
+    counts.set(card.teamId, entry)
+  }
+  const states = new Map<string, TeamCardState>()
+  for (const [teamId, c] of counts) {
+    states.set(teamId, cardStateFrom(c.yellows, c.reds))
+  }
+  return states
+}
 
 const PHASE_LABELS: Record<string, string> = {
   no_entry: "Do not enter",
@@ -123,6 +160,13 @@ const PHASE_STYLES: Record<string, string> = {
 
 const matchLabel = matchShortLabel
 
+// shown in the issue-card dialog to remind the judge of each card's ruling
+const CARD_RULINGS: Record<CardType, string> = {
+  yellow:
+    "Dealing intentional or egregious damage to other robots. Two yellow cards count as a red card.",
+  red: "Excessive ungracious or unprofessional behavior. Two red cards disqualify the team.",
+}
+
 function ControlPanel() {
   const { event } = Route.useRouteContext()
   const eventId = event.id
@@ -139,9 +183,12 @@ function ControlPanel() {
   const [flipSides, setFlipSides] = useState(
     event.settings.flipAllianceSides ?? false
   )
+  const [cards, setCards] = useState(loaded.cards)
   const order = allianceOrder(flipSides)
 
   const current = matches.find((m) => m.id === field.matchId) ?? null
+  // queue order: practice → quals → playoffs, then play order
+  const queueMatches = sortMatchesByType(matches)
   const [totals, setTotals] = useState<{ red: Totals; blue: Totals }>({
     red: (current?.redScore as CachedAllianceScore | null)?.totals ?? null,
     blue: (current?.blueScore as CachedAllianceScore | null)?.totals ?? null,
@@ -198,6 +245,9 @@ function ControlPanel() {
     if (message.type === "bracket_update") {
       void router.invalidate()
     }
+    if (message.type === "cards_update") {
+      void listCardsFn({ data: { eventId } }).then(setCards)
+    }
     if (message.type === "toast") {
       const show = message.variant === "warning" ? toast.warning : toast.info
       show(message.message)
@@ -211,6 +261,7 @@ function ControlPanel() {
   const faultFn = useServerFn(fieldFault)
   const replayFn = useServerFn(replayMatch)
   const judgeStatusFn = useServerFn(getJudgeStatus)
+  const listCardsFn = useServerFn(listCards)
 
   // fallback poll catches judges pruned for inactivity (no event fires for them)
   useEffect(() => {
@@ -275,7 +326,7 @@ function ControlPanel() {
                 <SelectValue placeholder="Queue a match…" />
               </SelectTrigger>
               <SelectContent>
-                {matches.map((match) => (
+                {queueMatches.map((match) => (
                   <SelectItem key={match.id} value={match.id}>
                     {matchLabel(match)} — {match.status}
                     {match.redPoints !== null
@@ -358,7 +409,12 @@ function ControlPanel() {
         />
       )}
       {event.status === "playoffs" && (
-        <PlayoffCard eventId={eventId} bracket={loaded.bracket} />
+        <PlayoffCard
+          eventId={eventId}
+          bracket={loaded.bracket}
+          selection={selection}
+          onSelection={setSelection}
+        />
       )}
 
       <DisplayCard
@@ -367,18 +423,47 @@ function ControlPanel() {
         view={view}
         flipSides={flipSides}
         onFlipSides={setFlipSides}
+        matchEnded={field.phase === "post_match"}
+        onSafeToEnter={() => safeFn({ data: { eventId } })}
       />
 
-      <PublishCard
-        eventId={eventId}
-        current={current}
-        running={field.running}
-        view={view}
-        redTotal={totals.red?.total ?? null}
-        blueTotal={totals.blue?.total ?? null}
-        judgeStatus={judgeStatus}
-        order={order}
-      />
+      <div className="grid items-stretch gap-4 lg:grid-cols-2">
+        <PublishCard
+          eventId={eventId}
+          current={current}
+          running={field.running}
+          view={view}
+          redTotal={totals.red?.total ?? null}
+          blueTotal={totals.blue?.total ?? null}
+          judgeStatus={judgeStatus}
+          order={order}
+        />
+
+        {/* Publish drives the row height; the cards panel fills its cell and
+            scrolls its list rather than stretching the row taller */}
+        <div className="lg:relative">
+          <CardsPanel
+            eventId={eventId}
+            roster={loaded.roster}
+            currentTeamIds={
+              current
+                ? [
+                    current.red1,
+                    current.red2,
+                    current.red3,
+                    current.red4,
+                    current.blue1,
+                    current.blue2,
+                    current.blue3,
+                    current.blue4,
+                  ].filter((id): id is string => id !== null)
+                : []
+            }
+            cards={cards}
+            onCards={setCards}
+          />
+        </div>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {order.map((side) => (
@@ -388,8 +473,8 @@ function ControlPanel() {
             teams={
               current
                 ? side === "red"
-                  ? [current.red1, current.red2, current.red3]
-                  : [current.blue1, current.blue2, current.blue3]
+                  ? [current.red1, current.red2, current.red3, current.red4]
+                  : [current.blue1, current.blue2, current.blue3, current.blue4]
                 : []
             }
             totals={totals[side]}
@@ -397,6 +482,220 @@ function ControlPanel() {
         ))}
       </div>
     </div>
+  )
+}
+
+function CardsPanel({
+  eventId,
+  roster,
+  currentTeamIds,
+  cards,
+  onCards,
+}: {
+  eventId: string
+  roster: RosterTeam[]
+  currentTeamIds: string[]
+  cards: CardRow[]
+  onCards: (cards: CardRow[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [teamId, setTeamId] = useState("")
+  const [type, setType] = useState<CardType>("yellow")
+  const [reason, setReason] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  const issueFn = useServerFn(issueCard)
+  const revokeFn = useServerFn(revokeCard)
+  const listCardsFn = useServerFn(listCards)
+
+  const states = cardStatesByTeam(cards)
+  const numberOf = new Map(roster.map((t) => [t.teamId, t.number]))
+  const nameOf = new Map(roster.map((t) => [t.teamId, t.name]))
+  // teams currently on the field first, then the rest of the roster by number
+  const onField = roster.filter((t) => currentTeamIds.includes(t.teamId))
+  const others = roster
+    .filter((t) => !currentTeamIds.includes(t.teamId))
+    .sort((a, b) => a.number - b.number)
+
+  async function refresh() {
+    onCards(await listCardsFn({ data: { eventId } }))
+  }
+
+  async function submit() {
+    if (!teamId) return
+    setBusy(true)
+    try {
+      await issueFn({ data: { eventId, teamId, type, reason } })
+      await refresh()
+      setOpen(false)
+      setTeamId("")
+      setReason("")
+      setType("yellow")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function revoke(cardId: string) {
+    try {
+      await revokeFn({ data: { cardId } })
+      await refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  function TeamOption({ id }: { id: string }) {
+    return (
+      <SelectItem value={id}>
+        {numberOf.get(id) ?? "?"} — {nameOf.get(id) ?? "Unknown"}
+        {states.get(id)?.disqualified ? " (DQ)" : ""}
+      </SelectItem>
+    )
+  }
+
+  return (
+    <Card className="flex flex-col overflow-hidden lg:absolute lg:inset-0">
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+        <div>
+          <CardTitle>Cards</CardTitle>
+          <CardDescription>
+            Yellow / red cards. Two yellows count as a red; two reds disqualify.
+          </CardDescription>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button className="gap-2">
+              <RectangleVerticalIcon className="size-4 fill-yellow-400 text-yellow-500" />
+              Issue card
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Issue a card</DialogTitle>
+              <DialogDescription>
+                A red card to a team in the live match zeroes that alliance's
+                score for the match.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label>Team</Label>
+                <Select value={teamId} onValueChange={setTeamId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a team…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {onField.length > 0 && (
+                      <>
+                        {onField.map((t) => (
+                          <TeamOption key={t.teamId} id={t.teamId} />
+                        ))}
+                        <Separator className="my-1" />
+                      </>
+                    )}
+                    {others.map((t) => (
+                      <TeamOption key={t.teamId} id={t.teamId} />
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Card</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={type === "yellow" ? "default" : "outline"}
+                    className="gap-2"
+                    onClick={() => setType("yellow")}
+                  >
+                    <RectangleVerticalIcon className="size-4 fill-yellow-400 text-yellow-500" />
+                    Yellow
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={type === "red" ? "destructive" : "outline"}
+                    className="gap-2"
+                    onClick={() => setType("red")}
+                  >
+                    <RectangleVerticalIcon className="size-4 fill-red-600 text-red-600" />
+                    Red
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {CARD_RULINGS[type]}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="card-reason">Reason</Label>
+                <Textarea
+                  id="card-reason"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g. intentional damage to another robot"
+                  rows={3}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setOpen(false)}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button onClick={submit} disabled={!teamId || busy}>
+                Issue {type} card
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1 overflow-y-auto">
+        {cards.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No cards issued.</p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border">
+            {[...cards].reverse().map((card) => (
+              <li
+                key={card.id}
+                className="flex items-center gap-3 py-2 text-sm"
+              >
+                <TeamCards
+                  cards={cardStateFrom(
+                    card.type === "yellow" ? 1 : 0,
+                    card.type === "red" ? 1 : 0
+                  )}
+                  size="sm"
+                />
+                <span className="font-mono font-semibold tabular-nums">
+                  {numberOf.get(card.teamId) ?? "?"}
+                </span>
+                <span className="flex-1 truncate text-muted-foreground">
+                  {card.reason || "—"}
+                  {card.matchId ? " · score zeroed" : ""}
+                </span>
+                {states.get(card.teamId)?.disqualified && (
+                  <Badge variant="destructive">DQ</Badge>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={() => revoke(card.id)}
+                  title="Revoke card"
+                >
+                  <XIcon className="size-4" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -531,13 +830,27 @@ function PublishCard({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Publish before all judges submit?
+              Unable to verify all judges submitted
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Only {submitted} of {active} judges have submitted their scores.
-              You can override and publish now, or wait for the rest.
+              Only {submitted} of {active} judges are showing as submitted, but
+              a judge may have scored without the system registering it. Please
+              confirm the final scores below before publishing.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="flex items-center justify-center gap-3 py-2 font-mono text-2xl font-bold tabular-nums">
+            {order.map((side, idx) => (
+              <span key={side} className="flex items-center gap-3">
+                {idx > 0 && (
+                  <span className="text-base text-muted-foreground">–</span>
+                )}
+                <span style={{ color: `var(--alliance-${side})` }}>
+                  {side.toUpperCase()}{" "}
+                  {(side === "red" ? redTotal : blueTotal) ?? 0}
+                </span>
+              </span>
+            ))}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Wait</AlertDialogCancel>
             <AlertDialogAction
@@ -697,12 +1010,16 @@ function DisplayCard({
   view,
   flipSides,
   onFlipSides,
+  matchEnded,
+  onSafeToEnter,
 }: {
   eventId: string
   eventSlug: string
   view: DisplayView
   flipSides: boolean
   onFlipSides: (flip: boolean) => void
+  matchEnded: boolean
+  onSafeToEnter: () => Promise<unknown>
 }) {
   const setViewFn = useServerFn(setDisplayView)
   const flipFn = useServerFn(setFlipAllianceSides)
@@ -710,6 +1027,11 @@ function DisplayCard({
   async function switchTo(candidate: DisplayView) {
     try {
       await setViewFn({ data: { eventId, view: candidate } })
+      // once a match is over, moving to the camera-only view means the field is
+      // clear for teams — flip field entry to "safe to enter" automatically
+      if (candidate === "camera" && matchEnded) {
+        await onSafeToEnter()
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
     }
@@ -930,9 +1252,13 @@ function SelectionCard({
 function PlayoffCard({
   eventId,
   bracket,
+  selection,
+  onSelection,
 }: {
   eventId: string
   bracket: Parameters<typeof BracketGraphic>[0]["bracket"]
+  selection: EnrichedSelectionState
+  onSelection: (state: EnrichedSelectionState) => void
 }) {
   const router = useRouter()
   const generateFn = useServerFn(generatePlayoffBracket)
@@ -970,7 +1296,104 @@ function PlayoffCard({
           </div>
         )}
         <BracketGraphic bracket={bracket} />
+        <BackupRobots
+          eventId={eventId}
+          selection={selection}
+          onSelection={onSelection}
+        />
       </CardContent>
     </Card>
+  )
+}
+
+const NO_BACKUP = "__none__"
+
+/** Per-alliance backup-robot assignment, available once selection is locked. */
+function BackupRobots({
+  eventId,
+  selection,
+  onSelection,
+}: {
+  eventId: string
+  selection: EnrichedSelectionState
+  onSelection: (state: EnrichedSelectionState) => void
+}) {
+  const setBackupFn = useServerFn(setSelectionBackup)
+
+  // teams eligible to be a backup: not on any alliance (captain/pick/backup).
+  // available/declined pools plus any current backups, deduped in rank order.
+  const assignedBackupIds = new Set(
+    selection.alliances
+      .map((a) => a.backup?.teamId)
+      .filter((id): id is string => Boolean(id))
+  )
+  const seen = new Set<string>()
+  const freePool = [
+    ...selection.backups,
+    ...selection.available,
+    ...selection.declined,
+  ].filter((t) => {
+    if (assignedBackupIds.has(t.teamId) || seen.has(t.teamId)) return false
+    seen.add(t.teamId)
+    return true
+  })
+
+  if (selection.alliances.length === 0) return null
+
+  async function assign(allianceNumber: number, value: string) {
+    const teamId = value === NO_BACKUP ? null : value
+    try {
+      const next = await setBackupFn({
+        data: { eventId, allianceNumber, teamId },
+      })
+      onSelection(next)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t pt-4">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm font-semibold">Backup robots</span>
+        <span className="text-xs text-muted-foreground">
+          Add a 4th team to an alliance.
+        </span>
+      </div>
+      <div className="grid gap-2 @md/board:grid-cols-2">
+        {selection.alliances.map((alliance) => {
+          // this alliance's own current backup must appear in its own list
+          const options = alliance.backup
+            ? [alliance.backup, ...freePool]
+            : freePool
+          return (
+            <div
+              key={alliance.number}
+              className="flex items-center gap-2 text-sm"
+            >
+              <span className="w-20 shrink-0 font-medium">
+                Alliance {alliance.number}
+              </span>
+              <Select
+                value={alliance.backup?.teamId ?? NO_BACKUP}
+                onValueChange={(value) => assign(alliance.number, value)}
+              >
+                <SelectTrigger size="sm" className="flex-1">
+                  <SelectValue placeholder="No backup" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_BACKUP}>No backup</SelectItem>
+                  {options.map((team) => (
+                    <SelectItem key={team.teamId} value={team.teamId}>
+                      {team.number} {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

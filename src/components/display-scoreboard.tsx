@@ -1,13 +1,25 @@
 import { useEffect, useState } from "react"
 import { motion } from "motion/react"
 import { AnimatedNumber } from "@/components/animated-number"
+import { TeamCards } from "@/components/team-cards"
 import { cn } from "@/lib/utils"
 import { TOWER_STRENGTH, opponentTowerStrength } from "@/games/stronghold"
 import type { StrongholdScore } from "@/games/stronghold"
 import { useServerClock } from "@/hooks/use-server-clock"
 import type { Alliance } from "@/shared/alliance"
+import { EMPTY_CARD_STATE } from "@/shared/cards"
+import type { TeamCardState } from "@/shared/cards"
 import type { TimelineSegment } from "@/games/types"
 import type { ServerMessage } from "@/shared/realtime-messages"
+
+interface TeamSlot {
+  label: number | string
+  cards: TeamCardState
+  /** playoff backup robot — rendered with a BACKUP tag */
+  backup?: boolean
+}
+
+const EMPTY_SLOT: TeamSlot = { label: "—", cards: EMPTY_CARD_STATE }
 
 type Totals = Extract<ServerMessage, { type: "score_update" }>["red"]
 
@@ -53,14 +65,16 @@ export function Scoreboard({
   order,
 }: {
   label: string
-  teams: { teamId: string; number: number }[]
+  teams: { teamId: string; number: number; cards?: TeamCardState }[]
   current: {
     red1: string | null
     red2: string | null
     red3: string | null
+    red4: string | null
     blue1: string | null
     blue2: string | null
     blue3: string | null
+    blue4: string | null
   } | null
   live: { red: AllianceLive; blue: AllianceLive }
   field: { phase: string; phaseEndsAt: number | null }
@@ -91,14 +105,26 @@ export function Scoreboard({
       ? (1 - remainingMs / phaseLengthMs) * 100
       : null
 
-  const numbers = new Map(teams.map((t) => [t.teamId, t.number]))
-  const teamsOf = (side: "red" | "blue") =>
-    current
-      ? (side === "red"
-          ? [current.red1, current.red2, current.red3]
-          : [current.blue1, current.blue2, current.blue3]
-        ).map((id) => (id ? (numbers.get(id) ?? "?") : "—"))
-      : ["—", "—", "—"]
+  const byId = new Map(teams.map((t) => [t.teamId, t]))
+  const slotFor = (id: string | null, backup = false): TeamSlot => {
+    const team = id ? byId.get(id) : undefined
+    return {
+      label: team?.number ?? (id ? "?" : "—"),
+      cards: team?.cards ?? EMPTY_CARD_STATE,
+      backup,
+    }
+  }
+  const teamsOf = (side: "red" | "blue"): TeamSlot[] => {
+    if (!current) return [EMPTY_SLOT, EMPTY_SLOT, EMPTY_SLOT]
+    const [t1, t2, t3, t4] =
+      side === "red"
+        ? [current.red1, current.red2, current.red3, current.red4]
+        : [current.blue1, current.blue2, current.blue3, current.blue4]
+    const slots = [slotFor(t1), slotFor(t2), slotFor(t3)]
+    // only show the 4th row when a backup robot is actually assigned
+    if (t4) slots.push(slotFor(t4, true))
+    return slots
+  }
 
   const phaseColor = PHASE_COLORS[field.phase] ?? "bg-muted"
   const phaseLabel = PHASE_LABELS[field.phase] ?? field.phase
@@ -171,7 +197,7 @@ function AlliancePanel({
   mirrored,
 }: {
   side: "red" | "blue"
-  teams: (number | string)[]
+  teams: TeamSlot[]
   mine: AllianceLive
   opponent: AllianceLive
   /** mirror the inner layout (the panel sitting on the right edge) */
@@ -198,13 +224,36 @@ function AlliancePanel({
       }}
     >
       <div className="flex flex-col gap-0.5">
-        {teams.map((number, i) => (
+        {teams.map((slot, i) => (
           <div
             key={i}
-            className="w-16 px-2 py-0.5 text-center text-xl font-black text-white tabular-nums"
-            style={{ backgroundColor: color }}
+            className={cn(
+              "flex items-center gap-1.5",
+              mirrored && "flex-row-reverse"
+            )}
           >
-            {number}
+            <div
+              className={cn(
+                "w-16 px-2 py-0.5 text-center text-xl font-black text-white tabular-nums",
+                slot.cards.disqualified && "line-through opacity-50",
+                slot.backup && "text-base"
+              )}
+              style={{ backgroundColor: color }}
+            >
+              {slot.label}
+            </div>
+            {slot.backup && (
+              <span
+                className="px-1 py-0.5 text-[0.6rem] font-bold tracking-wide uppercase"
+                style={{
+                  color,
+                  border: `1px solid color-mix(in oklch, ${color} 50%, transparent)`,
+                }}
+              >
+                Backup
+              </span>
+            )}
+            <TeamCards cards={slot.cards} size="md" />
           </div>
         ))}
       </div>

@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 import { getGame } from "@/games"
 import { DEFENSE_STRENGTH, DEFENSES, PointValues } from "@/games/stronghold"
 import type { StrongholdScore } from "@/games/stronghold"
-import { useRealtime } from "@/hooks/use-realtime"
+import { useRealtime, useRealtimeStatus } from "@/hooks/use-realtime"
 import { useServerClock } from "@/hooks/use-server-clock"
 import type { FieldState } from "@/server/engine/match-engine"
 import { getCurrentUser } from "@/server/functions/auth"
@@ -28,7 +28,13 @@ import { allianceOrder } from "@/shared/alliance"
 import { matchShortLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ServerMessage } from "@/shared/realtime-messages"
-import { CheckCircle2Icon, SendIcon, Undo2Icon } from "lucide-react"
+import {
+  CheckCircle2Icon,
+  RefreshCwIcon,
+  SendIcon,
+  Undo2Icon,
+  WifiOffIcon,
+} from "lucide-react"
 
 export const Route = createFileRoute("/judge/$eventSlug")({
   beforeLoad: async ({ params }) => {
@@ -99,6 +105,13 @@ function JudgePage() {
   const [flipSides, setFlipSides] = useState(
     event.settings.flipAllianceSides ?? false
   )
+  // FMS connection health: the realtime socket (live updates) and whether our
+  // presence heartbeat is still landing. Either being down means we're out of
+  // sync with the control panel even though scoring (HTTP) still works.
+  const { status: rtStatus, reconnect: reconnectRealtime } = useRealtimeStatus()
+  const [fmsOnline, setFmsOnline] = useState(true)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   const checkInFn = useServerFn(judgeCheckIn)
   const heartbeatFn = useServerFn(judgeHeartbeat)
@@ -109,14 +122,25 @@ function JudgePage() {
   const current = matches.find((m) => m.id === field.matchId) ?? null
 
   // presence: a judge counts as active once it picks an alliance, and stays
-  // active while it heartbeats; closing the page (cleanup) drops it
+  // active while it heartbeats; closing the page (cleanup) drops it. We track
+  // whether each heartbeat lands so the header can flag a lost FMS connection.
   useEffect(() => {
     if (alliance === null) return
-    void checkInFn({ data: { eventId: event.id, judgeId, alliance } })
+    let cancelled = false
+    const ping = async (fn: () => Promise<unknown>) => {
+      try {
+        await fn()
+        if (!cancelled) setFmsOnline(true)
+      } catch {
+        if (!cancelled) setFmsOnline(false)
+      }
+    }
+    void ping(() => checkInFn({ data: { eventId: event.id, judgeId, alliance } }))
     const interval = setInterval(() => {
-      void heartbeatFn({ data: { eventId: event.id, judgeId } })
+      void ping(() => heartbeatFn({ data: { eventId: event.id, judgeId } }))
     }, 5000)
     return () => {
+      cancelled = true
       clearInterval(interval)
       void leaveFn({ data: { eventId: event.id, judgeId } })
     }
@@ -196,38 +220,55 @@ function JudgePage() {
   const myState = states[alliance]
   const myTotal = totals[alliance]?.total
   const robotCount = robotsFor(current, alliance)
+  // only flag once mounted: SSR/pre-mount renders default to connected so the
+  // notch stays collapsed and we avoid a hydration mismatch
+  const outOfSync = mounted && (rtStatus !== "open" || !fmsOnline)
+
+  async function handleReconnect() {
+    reconnectRealtime()
+    try {
+      await checkInFn({ data: { eventId: event.id, judgeId, alliance } })
+      setFmsOnline(true)
+    } catch {
+      setFmsOnline(false)
+    }
+  }
 
   return (
     <main className="mx-auto flex min-h-svh max-w-md flex-col gap-3 p-3 pb-28">
       <header
-        className="sticky top-0 z-20 grid grid-cols-3 items-center gap-2 px-3 py-2 text-white shadow-md"
+        className="sticky top-0 z-20 text-white shadow-md"
         style={{ backgroundColor: allianceColor }}
       >
-        <button
-          type="button"
-          className="justify-self-start text-left leading-none"
-          onClick={() => setAlliance(null)}
-          title="Switch alliance"
-        >
-          <div className="text-base font-bold">{alliance.toUpperCase()}</div>
-          <div className="text-[0.6rem] opacity-80">tap to switch</div>
-        </button>
+        <div className="grid grid-cols-3 items-center gap-2 px-3 py-2">
+          <button
+            type="button"
+            className="justify-self-start text-left leading-none"
+            onClick={() => setAlliance(null)}
+            title="Switch alliance"
+          >
+            <div className="text-base font-bold">{alliance.toUpperCase()}</div>
+            <div className="text-[0.6rem] opacity-80">tap to switch</div>
+          </button>
 
-        <div className="text-center leading-none">
-          <div className="text-3xl font-bold tabular-nums">{myTotal ?? 0}</div>
-          <div className="text-[0.6rem] opacity-80">total pts</div>
+          <div className="text-center leading-none">
+            <div className="text-3xl font-bold tabular-nums">{myTotal ?? 0}</div>
+            <div className="text-[0.6rem] opacity-80">total pts</div>
+          </div>
+
+          <div className="justify-self-end text-right leading-none">
+            <div className="text-[0.65rem] opacity-80">
+              {current ? matchShortLabel(current) : "no match"}
+              {robotCount > 0 && ` · ${robotCount} robots`}
+            </div>
+            <div className="flex items-center justify-end gap-2 font-mono text-lg font-bold tabular-nums">
+              <span>{PHASE_LABELS[field.phase] ?? field.phase}</span>
+              <Countdown phaseEndsAt={field.phaseEndsAt} />
+            </div>
+          </div>
         </div>
 
-        <div className="justify-self-end text-right leading-none">
-          <div className="text-[0.65rem] opacity-80">
-            {current ? matchShortLabel(current) : "no match"}
-            {robotCount > 0 && ` · ${robotCount} robots`}
-          </div>
-          <div className="flex items-center justify-end gap-2 font-mono text-lg font-bold tabular-nums">
-            <span>{PHASE_LABELS[field.phase] ?? field.phase}</span>
-            <Countdown phaseEndsAt={field.phaseEndsAt} />
-          </div>
-        </div>
+        <ConnectionNotch outOfSync={outOfSync} onReconnect={handleReconnect} />
       </header>
 
       {current === null ? (
@@ -303,6 +344,43 @@ function SubmittedView({
       <Button variant="outline" onClick={onResume}>
         Resume scoring
       </Button>
+    </div>
+  )
+}
+
+function ConnectionNotch({
+  outOfSync,
+  onReconnect,
+}: {
+  outOfSync: boolean
+  onReconnect: () => void
+}) {
+  // a thin tab sits at the bottom edge of the header and extends into a full
+  // status strip when the FMS link drops; the grid-rows trick animates height
+  return (
+    <div
+      className={cn(
+        "grid overflow-hidden bg-black/35 transition-[grid-template-rows] duration-300 ease-out",
+        outOfSync ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+      )}
+      aria-hidden={!outOfSync}
+    >
+      <div className="min-h-0">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+          <span className="flex items-center gap-1.5 font-medium">
+            <WifiOffIcon className="size-3.5 shrink-0" />
+            Out of sync with FMS · scores still save
+          </span>
+          <button
+            type="button"
+            onClick={onReconnect}
+            className="flex shrink-0 items-center gap-1 border border-white/50 px-2 py-0.5 font-semibold transition-colors hover:bg-white/15"
+          >
+            <RefreshCwIcon className="size-3" />
+            Reconnect
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -7,6 +7,9 @@
  * match between the upper- and lower-bracket winners (no bracket reset, by
  * design — MiniFRC events are short).
  *
+ * The grand final flips alliance colors relative to the rest of the bracket:
+ * the lower-bracket finalist is red and the upper-bracket finalist is blue.
+ *
  * Sources: 'seed:N' (alliance seeded N), 'winner:SLOT', 'loser:SLOT'.
  */
 
@@ -77,12 +80,13 @@ const T8: TemplateMatch[] = [
     red: "loser:M11",
     blue: "winner:M12",
   },
+  // finals switch colors: lower-bracket finalist red, upper-bracket finalist blue
   {
     slot: "F",
     bracket: "final",
     round: 6,
-    red: "winner:M11",
-    blue: "winner:M13",
+    red: "winner:M13",
+    blue: "winner:M11",
   },
 ]
 
@@ -132,8 +136,8 @@ const T7: TemplateMatch[] = [
     slot: "F",
     bracket: "final",
     round: 6,
-    red: "winner:M8",
-    blue: "winner:M11",
+    red: "winner:M11",
+    blue: "winner:M8",
   },
 ]
 
@@ -175,8 +179,8 @@ const T6: TemplateMatch[] = [
     slot: "F",
     bracket: "final",
     round: 6,
-    red: "winner:M7",
-    blue: "winner:M9",
+    red: "winner:M9",
+    blue: "winner:M7",
   },
 ]
 
@@ -210,8 +214,8 @@ const T5: TemplateMatch[] = [
     slot: "F",
     bracket: "final",
     round: 5,
-    red: "winner:M5",
-    blue: "winner:M7",
+    red: "winner:M7",
+    blue: "winner:M5",
   },
 ]
 
@@ -237,8 +241,8 @@ const T4: TemplateMatch[] = [
     slot: "F",
     bracket: "final",
     round: 4,
-    red: "winner:M4",
-    blue: "winner:M5",
+    red: "winner:M5",
+    blue: "winner:M4",
   },
 ]
 
@@ -250,13 +254,14 @@ const T3: TemplateMatch[] = [
     slot: "F",
     bracket: "final",
     round: 4,
-    red: "winner:M2",
-    blue: "winner:M3",
+    red: "winner:M3",
+    blue: "winner:M2",
   },
 ]
 
 const T2: TemplateMatch[] = [
-  { slot: "F", bracket: "final", round: 1, red: "seed:1", blue: "seed:2" },
+  { slot: "M1", bracket: "upper", round: 1, red: "seed:1", blue: "seed:2" },
+  { slot: "F", bracket: "final", round: 2, red: "loser:M1", blue: "winner:M1" },
 ]
 
 const TEMPLATES: Record<number, TemplateMatch[] | undefined> = {

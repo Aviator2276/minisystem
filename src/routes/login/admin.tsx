@@ -19,16 +19,17 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { getCurrentUser, login } from "@/server/functions/auth"
+import { ShieldIcon } from "lucide-react"
 
-export const Route = createFileRoute("/login/team")({
+export const Route = createFileRoute("/login/admin")({
   beforeLoad: async () => {
     const user = await getCurrentUser()
     if (user) throw redirect({ to: user.role === "admin" ? "/admin" : "/team" })
   },
-  component: TeamLoginPage,
+  component: AdminLoginPage,
 })
 
-function TeamLoginPage() {
+function AdminLoginPage() {
   const router = useRouter()
   const loginFn = useServerFn(login)
   const [pending, setPending] = useState(false)
@@ -38,14 +39,15 @@ function TeamLoginPage() {
     const form = new FormData(event.currentTarget)
     setPending(true)
     try {
-      // the team username is the zero-padded two-digit team number
-      const username = String(Number(form.get("number"))).padStart(2, "0")
-      await loginFn({
-        data: { username, password: String(form.get("password")) },
+      const user = await loginFn({
+        data: {
+          username: String(form.get("username")),
+          password: String(form.get("password")),
+        },
       })
-      await router.navigate({ to: "/team" })
+      await router.navigate({ to: user.role === "admin" ? "/admin" : "/team" })
     } catch {
-      toast.error("Invalid team number or password")
+      toast.error("Invalid username or password")
     } finally {
       setPending(false)
     }
@@ -55,22 +57,22 @@ function TeamLoginPage() {
     <main className="flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Team sign in</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldIcon className="size-5" />
+            Admin sign in
+          </CardTitle>
           <CardDescription>
-            Use your team number and the password your event admin gave you.
+            Sign in with your email or username.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="flex flex-col gap-4" onSubmit={onSubmit}>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="number">Team number</Label>
+              <Label htmlFor="username">Email or username</Label>
               <Input
-                id="number"
-                name="number"
-                type="number"
-                min={1}
-                max={99}
-                inputMode="numeric"
+                id="username"
+                name="username"
+                autoComplete="username"
                 required
                 autoFocus
               />
@@ -92,7 +94,7 @@ function TeamLoginPage() {
         </CardContent>
         <CardFooter className="justify-center text-sm text-muted-foreground">
           <Link to="/login" className="hover:underline">
-            ← Admin sign in
+            ← Team sign in
           </Link>
         </CardFooter>
       </Card>

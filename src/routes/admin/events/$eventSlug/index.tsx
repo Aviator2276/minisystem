@@ -58,7 +58,6 @@ import {
   ListChecksIcon,
   PlayIcon,
   PlusIcon,
-  UsersIcon,
   XIcon,
 } from "lucide-react"
 
@@ -97,21 +96,44 @@ function EventDashboard() {
 
   return (
     <div className="grid gap-4 @xl/main:grid-cols-3">
-      <Card className="bg-gradient-to-t from-primary/5 to-card shadow-xs">
+      <Card>
         <CardHeader>
-          <CardDescription>Teams</CardDescription>
-          <CardTitle className="text-3xl font-semibold tabular-nums">
-            {roster.length}
-          </CardTitle>
-          <CardAction>
-            <Badge variant="outline">
-              <UsersIcon />
-            </Badge>
-          </CardAction>
+          <CardTitle>Quick actions</CardTitle>
         </CardHeader>
-        <CardFooter className="text-sm text-muted-foreground">
-          {Math.floor(roster.length / 3)} full alliances of 3
-        </CardFooter>
+        <CardContent className="flex flex-col gap-2">
+          <Button asChild variant="outline" className="justify-start">
+            <Link to="/admin/events/$eventSlug/matches" params={{ eventSlug }}>
+              <ListChecksIcon />
+              Schedule & scores
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="justify-start">
+            <Link to="/admin/events/$eventSlug/control" params={{ eventSlug }}>
+              <PlayIcon />
+              Field control
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            className="justify-start"
+            onClick={() =>
+              window.open(
+                `/display/${eventSlug}`,
+                "display",
+                "popup=1,width=1280,height=720"
+              )
+            }
+          >
+            <ArrowRightIcon />
+            Open display screen
+          </Button>
+          <Button asChild variant="outline" className="justify-start">
+            <Link to="/judge/$eventSlug" params={{ eventSlug }} target="_blank">
+              <ArrowRightIcon />
+              Open judge scorer
+            </Link>
+          </Button>
+        </CardContent>
       </Card>
       <Card className="bg-gradient-to-t from-primary/5 to-card shadow-xs">
         <CardHeader>
@@ -252,46 +274,6 @@ function EventDashboard() {
               )}
             </div>
           ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick actions</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          <Button asChild variant="outline" className="justify-start">
-            <Link to="/admin/events/$eventSlug/matches" params={{ eventSlug }}>
-              <ListChecksIcon />
-              Schedule & scores
-            </Link>
-          </Button>
-          <Button asChild variant="outline" className="justify-start">
-            <Link to="/admin/events/$eventSlug/control" params={{ eventSlug }}>
-              <PlayIcon />
-              Field control
-            </Link>
-          </Button>
-          <Button
-            variant="outline"
-            className="justify-start"
-            onClick={() =>
-              window.open(
-                `/display/${eventSlug}`,
-                "display",
-                "popup=1,width=1280,height=720"
-              )
-            }
-          >
-            <ArrowRightIcon />
-            Open display screen
-          </Button>
-          <Button asChild variant="outline" className="justify-start">
-            <Link to="/judge/$eventSlug" params={{ eventSlug }} target="_blank">
-              <ArrowRightIcon />
-              Open judge scorer
-            </Link>
-          </Button>
         </CardContent>
       </Card>
     </div>

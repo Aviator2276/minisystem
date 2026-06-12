@@ -2,6 +2,7 @@ import { and, asc, desc, eq } from "drizzle-orm"
 import { tables } from "@/db"
 import type { Db } from "@/db"
 import { getEventInStatus } from "@/server/services/events"
+import { MAX_PLAYOFF_ALLIANCES } from "@/server/selection/state-machine"
 import { bracketTemplate } from "./templates"
 
 type MatchRow = typeof tables.matches.$inferSelect
@@ -29,7 +30,9 @@ export function generateBracket(db: Db, eventId: string) {
     )
   }
 
-  const template = bracketTemplate(alliances.length)
+  // only the top 8 seeds make the bracket; any surplus alliances sit out
+  const seededCount = Math.min(alliances.length, MAX_PLAYOFF_ALLIANCES)
+  const template = bracketTemplate(seededCount)
   const maxOrder = db
     .select({ value: tables.matches.scheduledOrder })
     .from(tables.matches)
@@ -124,12 +127,19 @@ export function resolveBracket(db: Db, eventId: string): void {
       update.red1 = red.captainTeamId
       update.red2 = red.pick1TeamId
       update.red3 = red.pick2TeamId
+      update.red4 = red.backupTeamId
+    } else if (red && match.red4 !== red.backupTeamId) {
+      // same alliance, but its backup robot was added/removed/changed
+      update.red4 = red.backupTeamId
     }
     if (blue && match.blueAllianceId !== blue.id) {
       update.blueAllianceId = blue.id
       update.blue1 = blue.captainTeamId
       update.blue2 = blue.pick1TeamId
       update.blue3 = blue.pick2TeamId
+      update.blue4 = blue.backupTeamId
+    } else if (blue && match.blue4 !== blue.backupTeamId) {
+      update.blue4 = blue.backupTeamId
     }
     if (Object.keys(update).length > 0) {
       db.update(tables.matches)
@@ -161,8 +171,8 @@ export function getBracket(db: Db, eventId: string): BracketView {
     .all()
   const numberOf = new Map(alliances.map((a) => [a.id, a.number]))
   const matches = playoffMatches(db, eventId)
-  const template =
-    alliances.length >= 2 ? bracketTemplate(alliances.length) : []
+  const seededCount = Math.min(alliances.length, MAX_PLAYOFF_ALLIANCES)
+  const template = seededCount >= 2 ? bracketTemplate(seededCount) : []
   const meta = new Map(template.map((m) => [m.slot, m]))
 
   const final = matches.find((m) => m.bracketSlot === "F")

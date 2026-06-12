@@ -1,7 +1,8 @@
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm"
 import { tables } from "@/db"
 import type { Db } from "@/db"
 import type { SelectionStatus } from "@/db/schema"
+import { resolveBracket } from "@/server/playoffs/advance"
 import { publish } from "@/server/realtime/publish"
 import {
   allianceCountFor,
@@ -11,7 +12,8 @@ import type {
   SelectionActionInput,
   SelectionState,
 } from "@/server/selection/state-machine"
-import { getEvent } from "./events"
+import { disqualifiedTeamIds } from "./cards"
+import { getEvent, getEventInStatus } from "./events"
 import { computeRankings } from "./rankings"
 
 export interface SelectionTeam {
@@ -27,6 +29,8 @@ export interface EnrichedSelectionState {
     number: number
     captain: SelectionTeam | null
     picks: SelectionTeam[]
+    /** playoff backup robot, assigned after selection (display/roster only) */
+    backup: SelectionTeam | null
   }>
   declined: SelectionTeam[]
   pendingInvite: { allianceNumber: number; team: SelectionTeam } | null
@@ -56,11 +60,15 @@ function loadActions(db: Db, eventId: string): SelectionActionInput[] {
 }
 
 function rankedTeams(db: Db, eventId: string): SelectionTeam[] {
-  return computeRankings(db, eventId).map((row) => ({
-    teamId: row.teamId,
-    number: row.number,
-    name: row.name,
-  }))
+  // disqualified teams are not eligible for alliance selection or playoffs
+  const dq = disqualifiedTeamIds(db, eventId)
+  return computeRankings(db, eventId)
+    .filter((row) => !dq.has(row.teamId))
+    .map((row) => ({
+      teamId: row.teamId,
+      number: row.number,
+      name: row.name,
+    }))
 }
 
 function enrich(
@@ -76,6 +84,8 @@ function enrich(
       number: a.number,
       captain: a.captainTeamId ? resolve(a.captainTeamId) : null,
       picks: a.pickTeamIds.map(resolve),
+      // backups are assigned during playoffs, never in the live selection log
+      backup: null,
     })),
     declined: state.declined.map(resolve),
     pendingInvite: state.pendingInvite
@@ -153,6 +163,7 @@ function materializedSelectionState(
       picks: [a.pick1TeamId, a.pick2TeamId]
         .filter((id): id is string => id !== null)
         .map(resolve),
+      backup: a.backupTeamId ? resolve(a.backupTeamId) : null,
     })),
     declined: withStatus("declined"),
     pendingInvite: null,
@@ -162,6 +173,62 @@ function materializedSelectionState(
     complete: true,
     available: withStatus("available"),
   }
+}
+
+/**
+ * Adds or clears an alliance's backup robot during playoffs. The backup is a
+ * 4th team on the alliance roster (display/roster only — it does not change
+ * scoring). Pass `teamId: null` to remove it. Re-resolves the bracket so the
+ * backup propagates into upcoming (unposted) playoff matches' red4/blue4.
+ */
+export function setAllianceBackup(
+  db: Db,
+  eventId: string,
+  allianceNumber: number,
+  teamId: string | null
+): EnrichedSelectionState {
+  getEventInStatus(db, eventId, ["playoffs"])
+
+  const alliance = db
+    .select()
+    .from(tables.alliances)
+    .where(
+      and(
+        eq(tables.alliances.eventId, eventId),
+        eq(tables.alliances.number, allianceNumber)
+      )
+    )
+    .get()
+  if (!alliance) throw new Error(`No alliance ${allianceNumber} for this event`)
+
+  if (teamId !== null) {
+    const onRoster = (a: typeof alliance) =>
+      [a.captainTeamId, a.pick1TeamId, a.pick2TeamId, a.backupTeamId].includes(
+        teamId
+      )
+    const rostered = db
+      .select()
+      .from(tables.alliances)
+      .where(eq(tables.alliances.eventId, eventId))
+      .all()
+      .some(onRoster)
+    if (rostered) {
+      throw new Error("That team is already on an alliance")
+    }
+  }
+
+  db.update(tables.alliances)
+    .set({ backupTeamId: teamId })
+    .where(eq(tables.alliances.id, alliance.id))
+    .run()
+
+  // push the new roster into any not-yet-posted matches this alliance is in
+  resolveBracket(db, eventId)
+
+  const enriched = getSelectionState(db, eventId)
+  publish(eventId, "all", { type: "selection_update", payload: enriched })
+  publish(eventId, "all", { type: "bracket_update", payload: null })
+  return enriched
 }
 
 export function applySelectionAction(

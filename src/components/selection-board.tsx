@@ -101,6 +101,14 @@ export function SelectionBoard({
                     dark={dark}
                     animated={animated}
                   />
+                  {alliance.backup && (
+                    <TeamLine
+                      team={alliance.backup}
+                      role="B"
+                      dark={dark}
+                      animated={animated}
+                    />
+                  )}
                 </div>
               </motion.div>
             )

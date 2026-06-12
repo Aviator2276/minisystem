@@ -16,7 +16,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as TeamIndexRouteImport } from './routes/team/index'
 import { Route as LoginIndexRouteImport } from './routes/login/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
-import { Route as LoginTeamRouteImport } from './routes/login/team'
+import { Route as LoginAdminRouteImport } from './routes/login/admin'
 import { Route as JudgeEventSlugRouteImport } from './routes/judge/$eventSlug'
 import { Route as DisplayEventSlugRouteImport } from './routes/display/$eventSlug'
 import { Route as AdminTeamsRouteImport } from './routes/admin/teams'
@@ -64,9 +64,9 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const LoginTeamRoute = LoginTeamRouteImport.update({
-  id: '/login/team',
-  path: '/login/team',
+const LoginAdminRoute = LoginAdminRouteImport.update({
+  id: '/login/admin',
+  path: '/login/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JudgeEventSlugRoute = JudgeEventSlugRouteImport.update({
@@ -138,7 +138,7 @@ export interface FileRoutesByFullPath {
   '/admin/teams': typeof AdminTeamsRoute
   '/display/$eventSlug': typeof DisplayEventSlugRoute
   '/judge/$eventSlug': typeof JudgeEventSlugRoute
-  '/login/team': typeof LoginTeamRoute
+  '/login/admin': typeof LoginAdminRoute
   '/admin/': typeof AdminIndexRoute
   '/login/': typeof LoginIndexRoute
   '/team/': typeof TeamIndexRoute
@@ -157,7 +157,7 @@ export interface FileRoutesByTo {
   '/admin/teams': typeof AdminTeamsRoute
   '/display/$eventSlug': typeof DisplayEventSlugRoute
   '/judge/$eventSlug': typeof JudgeEventSlugRoute
-  '/login/team': typeof LoginTeamRoute
+  '/login/admin': typeof LoginAdminRoute
   '/admin': typeof AdminIndexRoute
   '/login': typeof LoginIndexRoute
   '/team': typeof TeamIndexRoute
@@ -178,7 +178,7 @@ export interface FileRoutesById {
   '/admin/teams': typeof AdminTeamsRoute
   '/display/$eventSlug': typeof DisplayEventSlugRoute
   '/judge/$eventSlug': typeof JudgeEventSlugRoute
-  '/login/team': typeof LoginTeamRoute
+  '/login/admin': typeof LoginAdminRoute
   '/admin/': typeof AdminIndexRoute
   '/login/': typeof LoginIndexRoute
   '/team/': typeof TeamIndexRoute
@@ -201,7 +201,7 @@ export interface FileRouteTypes {
     | '/admin/teams'
     | '/display/$eventSlug'
     | '/judge/$eventSlug'
-    | '/login/team'
+    | '/login/admin'
     | '/admin/'
     | '/login/'
     | '/team/'
@@ -220,7 +220,7 @@ export interface FileRouteTypes {
     | '/admin/teams'
     | '/display/$eventSlug'
     | '/judge/$eventSlug'
-    | '/login/team'
+    | '/login/admin'
     | '/admin'
     | '/login'
     | '/team'
@@ -240,7 +240,7 @@ export interface FileRouteTypes {
     | '/admin/teams'
     | '/display/$eventSlug'
     | '/judge/$eventSlug'
-    | '/login/team'
+    | '/login/admin'
     | '/admin/'
     | '/login/'
     | '/team/'
@@ -261,7 +261,7 @@ export interface RootRouteChildren {
   DebugRealtimeRoute: typeof DebugRealtimeRoute
   DisplayEventSlugRoute: typeof DisplayEventSlugRoute
   JudgeEventSlugRoute: typeof JudgeEventSlugRoute
-  LoginTeamRoute: typeof LoginTeamRoute
+  LoginAdminRoute: typeof LoginAdminRoute
   LoginIndexRoute: typeof LoginIndexRoute
   PublicEventSlugTvRoute: typeof PublicEventSlugTvRoute
   PublicEventSlugIndexRoute: typeof PublicEventSlugIndexRoute
@@ -318,11 +318,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/login/team': {
-      id: '/login/team'
-      path: '/login/team'
-      fullPath: '/login/team'
-      preLoaderRoute: typeof LoginTeamRouteImport
+    '/login/admin': {
+      id: '/login/admin'
+      path: '/login/admin'
+      fullPath: '/login/admin'
+      preLoaderRoute: typeof LoginAdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/judge/$eventSlug': {
@@ -462,7 +462,7 @@ const rootRouteChildren: RootRouteChildren = {
   DebugRealtimeRoute: DebugRealtimeRoute,
   DisplayEventSlugRoute: DisplayEventSlugRoute,
   JudgeEventSlugRoute: JudgeEventSlugRoute,
-  LoginTeamRoute: LoginTeamRoute,
+  LoginAdminRoute: LoginAdminRoute,
   LoginIndexRoute: LoginIndexRoute,
   PublicEventSlugTvRoute: PublicEventSlugTvRoute,
   PublicEventSlugIndexRoute: PublicEventSlugIndexRoute,

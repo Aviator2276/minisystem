@@ -6,12 +6,23 @@ import type { ServerMessage } from "@/shared/realtime-messages"
 
 type Listener = (message: ServerMessage) => void
 
+export type ConnectionStatus = "connecting" | "open" | "closed"
+type StatusListener = (status: ConnectionStatus) => void
+
 class RealtimeClient {
   private socket: WebSocket | null = null
   private listeners = new Set<Listener>()
+  private statusListeners = new Set<StatusListener>()
+  private status: ConnectionStatus = "closed"
   private topicCounts = new Map<string, number>()
   private reconnectDelay = 500
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  private setStatus(status: ConnectionStatus) {
+    if (this.status === status) return
+    this.status = status
+    for (const listener of this.statusListeners) listener(status)
+  }
 
   private ensureSocket() {
     if (this.socket && this.socket.readyState <= WebSocket.OPEN) return
@@ -20,9 +31,11 @@ class RealtimeClient {
       `${protocol}//${window.location.host}${REALTIME_PATH}`
     )
     this.socket = socket
+    this.setStatus("connecting")
 
     socket.addEventListener("open", () => {
       this.reconnectDelay = 500
+      this.setStatus("open")
       const topics = [...this.topicCounts.keys()]
       if (topics.length > 0)
         socket.send(JSON.stringify({ type: "subscribe", topics }))
@@ -40,6 +53,7 @@ class RealtimeClient {
     })
     socket.addEventListener("close", () => {
       this.socket = null
+      this.setStatus("closed")
       if (this.listeners.size === 0 && this.topicCounts.size === 0) return
       this.reconnectTimer ??= setTimeout(() => {
         this.reconnectTimer = null
@@ -47,6 +61,37 @@ class RealtimeClient {
       }, this.reconnectDelay)
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 10_000)
     })
+  }
+
+  getStatus() {
+    return this.status
+  }
+
+  onStatus(listener: StatusListener): () => void {
+    this.statusListeners.add(listener)
+    return () => {
+      this.statusListeners.delete(listener)
+    }
+  }
+
+  /** Manually tear down and re-open the socket (resets backoff). */
+  reconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    this.reconnectDelay = 500
+    if (this.socket) {
+      // drop the old listeners by closing; close handler clears this.socket
+      try {
+        this.socket.close()
+      } catch {
+        // ignore: socket may already be closing
+      }
+      this.socket = null
+      this.setStatus("closed")
+    }
+    this.ensureSocket()
   }
 
   private sendWhenOpen(payload: object) {

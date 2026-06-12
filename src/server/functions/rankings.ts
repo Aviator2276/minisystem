@@ -6,5 +6,5 @@ import { computeRankings } from "@/server/services/rankings"
 
 export const getRankings = createServerFn()
   .middleware([requireUser])
-  .inputValidator(z.object({ eventId: z.string() }))
+  .validator(z.object({ eventId: z.string() }))
   .handler(({ data }) => computeRankings(db, data.eventId))

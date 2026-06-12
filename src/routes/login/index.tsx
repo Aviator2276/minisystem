@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
   Link,
   createFileRoute,
@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { toast } from "sonner"
+import { REGEXP_ONLY_DIGITS } from "input-otp"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -17,37 +18,43 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp"
 import { Label } from "@/components/ui/label"
 import { getCurrentUser, login } from "@/server/functions/auth"
-import { KeyboardMusicIcon } from "lucide-react"
+import { KeyboardMusicIcon, ShieldIcon } from "lucide-react"
 
 export const Route = createFileRoute("/login/")({
   beforeLoad: async () => {
     const user = await getCurrentUser()
     if (user) throw redirect({ to: user.role === "admin" ? "/admin" : "/team" })
   },
-  component: AdminLoginPage,
+  component: TeamLoginPage,
 })
 
-function AdminLoginPage() {
+function TeamLoginPage() {
   const router = useRouter()
   const loginFn = useServerFn(login)
   const [pending, setPending] = useState(false)
+  const [number, setNumber] = useState("")
+  const passwordRef = useRef<HTMLInputElement>(null)
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     setPending(true)
     try {
-      const user = await loginFn({
-        data: {
-          username: String(form.get("username")),
-          password: String(form.get("password")),
-        },
+      // the team username is the zero-padded two-digit team number
+      const username = String(Number(number)).padStart(2, "0")
+      await loginFn({
+        data: { username, password: String(form.get("password")) },
       })
-      await router.navigate({ to: user.role === "admin" ? "/admin" : "/team" })
+      await router.navigate({ to: "/team" })
     } catch {
-      toast.error("Invalid username or password")
+      toast.error("Invalid team number or password")
     } finally {
       setPending(false)
     }
@@ -59,23 +66,33 @@ function AdminLoginPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <KeyboardMusicIcon className="size-5" />
-            MiniSystem
+            Team sign in
           </CardTitle>
           <CardDescription>
-            Admin sign in with your email or username.
+            Enter your two-digit team number and the password your event admin
+            gave you.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="flex flex-col gap-4" onSubmit={onSubmit}>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="username">Email or username</Label>
-              <Input
-                id="username"
-                name="username"
-                autoComplete="username"
-                required
+          <form className="flex flex-col gap-5" onSubmit={onSubmit}>
+            <div className="flex flex-col items-center gap-2">
+              <Label htmlFor="number">Team number</Label>
+              <InputOTP
+                id="number"
+                maxLength={2}
+                pattern={REGEXP_ONLY_DIGITS}
+                inputMode="numeric"
+                value={number}
+                onChange={setNumber}
+                // jump to the password field once both digits are in
+                onComplete={() => passwordRef.current?.focus()}
                 autoFocus
-              />
+              >
+                <InputOTPGroup className="gap-2">
+                  <InputOTPSlot index={0} className="size-16 border-l text-3xl" />
+                  <InputOTPSlot index={1} className="size-16 border-l text-3xl" />
+                </InputOTPGroup>
+              </InputOTP>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="password">Password</Label>
@@ -84,18 +101,23 @@ function AdminLoginPage() {
                 name="password"
                 type="password"
                 autoComplete="current-password"
+                ref={passwordRef}
                 required
               />
             </div>
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending || number.length === 0}>
               {pending ? "Signing in…" : "Sign in"}
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="justify-center text-sm text-muted-foreground">
-          <Link to="/login/team" className="hover:underline">
-            Team member? Sign in with your team number →
-          </Link>
+        <CardFooter className="flex-col gap-3">
+          <div className="h-px w-full bg-border" />
+          <Button asChild variant="outline" className="w-full">
+            <Link to="/login/admin">
+              <ShieldIcon className="size-4" />
+              Sign in as an admin
+            </Link>
+          </Button>
         </CardFooter>
       </Card>
     </main>

@@ -68,6 +68,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
     flipAllianceSides: z.boolean(),
   }),
   z.object({ type: z.literal("bracket_update"), payload: z.unknown() }),
+  z.object({ type: z.literal("cards_update"), payload: z.unknown() }),
   z.object({ type: z.literal("judges_update"), payload: z.unknown() }),
   z.object({ type: z.literal("sound"), cue: z.string() }),
   z.object({

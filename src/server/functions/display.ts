@@ -4,6 +4,9 @@ import { z } from "zod"
 import { db, tables } from "@/db"
 import { getMatchEngine } from "@/server/engine/instance"
 import { requireAdmin } from "@/server/auth/middleware"
+import { publicRateLimit } from "@/server/rate-limit/middleware"
+import { computeCardStates } from "@/server/services/cards"
+import { EMPTY_CARD_STATE } from "@/shared/cards"
 import { getBracket } from "@/server/playoffs/advance"
 import { publish } from "@/server/realtime/publish"
 import { computeRankings } from "@/server/services/rankings"
@@ -25,7 +28,7 @@ export type DisplayView = (typeof DISPLAY_VIEWS)[number]
 
 export const setDisplayView = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .inputValidator(
+  .validator(
     z.object({ eventId: z.string(), view: z.enum(DISPLAY_VIEWS) })
   )
   .handler(({ data }) => {
@@ -43,11 +46,13 @@ export const setDisplayView = createServerFn({ method: "POST" })
  * login. Live updates ride the public realtime channel.
  */
 export const getDisplayBootstrap = createServerFn()
-  .inputValidator(z.object({ slug: z.string() }))
+  .middleware([publicRateLimit])
+  .validator(z.object({ slug: z.string() }))
   .handler(({ data }) => {
     const event = events.getEventBySlug(db, data.slug)
     const roster = events.listEventTeams(db, event.id)
     const allParticipants = db.select().from(tables.participants).all()
+    const cardStates = computeCardStates(db, event.id)
     return {
       event: {
         id: event.id,
@@ -67,6 +72,7 @@ export const getDisplayBootstrap = createServerFn()
         participants: allParticipants
           .filter((p) => p.teamId === t.teamId)
           .map((p) => p.name),
+        cards: cardStates.get(t.teamId) ?? EMPTY_CARD_STATE,
       })),
       rankings: computeRankings(db, event.id),
       selection: getSelectionState(db, event.id),
@@ -75,14 +81,16 @@ export const getDisplayBootstrap = createServerFn()
   })
 
 /** public list of events for the landing page */
-export const listPublicEvents = createServerFn().handler(() =>
-  db
-    .select({
-      id: tables.events.id,
-      slug: tables.events.slug,
-      name: tables.events.name,
-      status: tables.events.status,
-    })
-    .from(tables.events)
-    .all()
-)
+export const listPublicEvents = createServerFn()
+  .middleware([publicRateLimit])
+  .handler(() =>
+    db
+      .select({
+        id: tables.events.id,
+        slug: tables.events.slug,
+        name: tables.events.name,
+        status: tables.events.status,
+      })
+      .from(tables.events)
+      .all()
+  )
