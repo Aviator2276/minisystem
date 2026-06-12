@@ -189,6 +189,17 @@ function ControlPanel() {
   const current = matches.find((m) => m.id === field.matchId) ?? null
   // queue order: practice → quals → playoffs, then play order
   const queueMatches = sortMatchesByType(matches)
+  // the next still-scheduled match after the current one, for auto-advance
+  const currentQueueIndex = queueMatches.findIndex(
+    (m) => m.id === field.matchId
+  )
+  const nextMatchId =
+    (currentQueueIndex >= 0
+      ? queueMatches
+          .slice(currentQueueIndex + 1)
+          .find((m) => m.status === "scheduled")
+      : queueMatches.find((m) => m.status === "scheduled")
+    )?.id ?? null
   const [totals, setTotals] = useState<{ red: Totals; blue: Totals }>({
     red: (current?.redScore as CachedAllianceScore | null)?.totals ?? null,
     blue: (current?.blueScore as CachedAllianceScore | null)?.totals ?? null,
@@ -425,6 +436,8 @@ function ControlPanel() {
         onFlipSides={setFlipSides}
         matchEnded={field.phase === "post_match"}
         onSafeToEnter={() => safeFn({ data: { eventId } })}
+        nextMatchId={nextMatchId}
+        onQueueMatch={(matchId) => setMatchFn({ data: { eventId, matchId } })}
       />
 
       <div className="grid items-stretch gap-4 lg:grid-cols-2">
@@ -702,6 +715,8 @@ function CardsPanel({
 const POST_VIEWS: { view: DisplayView; label: string }[] = [
   { view: "results", label: "Results" },
   { view: "rankings", label: "Rankings" },
+  { view: "bracket", label: "Bracket" },
+  { view: "camera", label: "Camera Only" },
   { view: "intermission", label: "Intermission" },
 ]
 
@@ -761,7 +776,9 @@ function PublishCard({
   }
 
   function handlePublish() {
-    if (active > 0 && !allSubmitted) {
+    // confirm whenever we can't verify every judge submitted — including when
+    // 0 judges show as active (a judge may have scored without registering)
+    if (!allSubmitted) {
       setConfirmOpen(true)
       return
     }
@@ -802,14 +819,14 @@ function PublishCard({
           {posted && <Badge variant="secondary">Published</Badge>}
           {!canPublish && !posted && (
             <p className="text-sm text-muted-foreground">
-              Score the match to enable publishing
+              Please wait for match to end.
             </p>
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <span className="text-xs tracking-wide text-muted-foreground uppercase">
-            Audience display
+            Quick Switch Views
           </span>
           <div className="flex flex-wrap gap-2">
             {POST_VIEWS.map(({ view: candidate, label }) => (
@@ -833,9 +850,11 @@ function PublishCard({
               Unable to verify all judges submitted
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Only {submitted} of {active} judges are showing as submitted, but
-              a judge may have scored without the system registering it. Please
-              confirm the final scores below before publishing.
+              {active > 0
+                ? `Only ${submitted} of ${active} judges are showing as submitted`
+                : "No judges are showing as connected"}
+              , but a judge may have scored without the system registering it.
+              Please confirm the final scores below before publishing.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex items-center justify-center gap-3 py-2 font-mono text-2xl font-bold tabular-nums">
@@ -1012,6 +1031,8 @@ function DisplayCard({
   onFlipSides,
   matchEnded,
   onSafeToEnter,
+  nextMatchId,
+  onQueueMatch,
 }: {
   eventId: string
   eventSlug: string
@@ -1020,6 +1041,8 @@ function DisplayCard({
   onFlipSides: (flip: boolean) => void
   matchEnded: boolean
   onSafeToEnter: () => Promise<unknown>
+  nextMatchId: string | null
+  onQueueMatch: (matchId: string) => Promise<unknown>
 }) {
   const setViewFn = useServerFn(setDisplayView)
   const flipFn = useServerFn(setFlipAllianceSides)
@@ -1031,6 +1054,11 @@ function DisplayCard({
       // clear for teams — flip field entry to "safe to enter" automatically
       if (candidate === "camera" && matchEnded) {
         await onSafeToEnter()
+      }
+      // after a finished match, jumping to the lineup queues the next match so
+      // the lineup shown is for the upcoming match
+      if (candidate === "lineup" && matchEnded && nextMatchId) {
+        await onQueueMatch(nextMatchId)
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))

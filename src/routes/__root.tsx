@@ -6,6 +6,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query"
 import { ThemeProvider } from "next-themes"
 import { AppDevtools } from "@/components/app-devtools"
+import { NotFoundPage, RouteErrorPage } from "@/components/error-pages"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
@@ -53,12 +54,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       },
     ],
   }),
-  notFoundComponent: () => (
-    <main className="container mx-auto p-4 pt-16">
-      <h1>404</h1>
-      <p>The requested page could not be found.</p>
-    </main>
-  ),
+  notFoundComponent: NotFoundPage,
+  errorComponent: RouteErrorPage,
   shellComponent: RootDocument,
 })
 
