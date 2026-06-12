@@ -192,7 +192,10 @@ function PublicEventPage() {
         </TabsContent>
 
         <TabsContent value="bracket" className="pt-2">
-          <BracketGraphic bracket={boot.bracket} />
+          <BracketGraphic
+            bracket={boot.bracket}
+            currentMatchId={boot.field.matchId}
+          />
         </TabsContent>
       </Tabs>
     </main>

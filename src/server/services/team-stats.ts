@@ -156,7 +156,7 @@ export function getTeamDashboard(db: Db, teamId: string, eventId?: string) {
     0
   )
   radar.push({
-    axis: "Discipline",
+    axis: "Clean play",
     value: worstPen === 0 ? 100 : Math.round(100 - (ownPen / worstPen) * 100),
     raw: ownPen,
   })

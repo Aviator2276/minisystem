@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
+import { ScaleToFit } from "@/components/scale-to-fit"
 import { SelectionBoard } from "@/components/selection-board"
 import { AnimatedNumber } from "@/components/animated-number"
 import { Confetti } from "@/components/display/confetti"
@@ -80,8 +81,54 @@ function DisplayScreen() {
     []
   )
 
+  // Preload + reuse one Audio element per cue. Creating a fresh `new Audio()`
+  // on every play has to fetch and decode the file first — that's the lag on
+  // the results sound. Once armed (a user gesture has unlocked audio) we load
+  // them all, then playback just rewinds and plays instantly.
+  const audioCacheRef = useRef<Map<string, HTMLAudioElement>>(new Map())
+  useEffect(() => {
+    if (!armed || preview) return
+    for (const [cue, src] of Object.entries(game.sounds)) {
+      if (!src || audioCacheRef.current.has(cue)) continue
+      const audio = new Audio(src)
+      audio.preload = "auto"
+      audio.load()
+      audioCacheRef.current.set(cue, audio)
+    }
+  }, [armed, preview, game])
+
+  function playSound(cue: string) {
+    if (!armedRef.current || preview) return
+    const src = game.sounds[cue]
+    if (!src) return
+    const cached = audioCacheRef.current.get(cue)
+    if (cached) {
+      cached.currentTime = 0
+      void cached.play().catch(() => {})
+    } else {
+      void new Audio(src).play().catch(() => {})
+    }
+  }
+
   const order = allianceOrder(boot.event.flipAllianceSides)
   const current = matches.find((m) => m.id === field.matchId) ?? null
+
+  // event-specific high score: the best single-alliance score from every OTHER
+  // posted match. The shown results match sets a new record when its top
+  // alliance beats it — that alliance gets the highlight + confetti.
+  const prevEventHigh = Math.max(
+    0,
+    ...matches
+      .filter((m) => m.status === "posted" && m.id !== current?.id)
+      .flatMap((m) => [m.redPoints ?? 0, m.bluePoints ?? 0])
+  )
+  const recordSide: Alliance | null =
+    current?.status === "posted" &&
+    Math.max(current.redPoints ?? 0, current.bluePoints ?? 0) > prevEventHigh
+      ? (current.redPoints ?? 0) >= (current.bluePoints ?? 0)
+        ? "red"
+        : "blue"
+      : null
   const [live, setLive] = useState<{ red: AllianceLive; blue: AllianceLive }>(
     () => ({
       red: cachedSide(current?.redScore),
@@ -150,10 +197,7 @@ function DisplayScreen() {
           }
         }
         setView(next)
-        if (next === "results" && armedRef.current && !preview) {
-          const src = game.sounds["results"]
-          if (src) void new Audio(src).play().catch(() => {})
-        }
+        if (next === "results") playSound("results")
         break
       }
       case "selection_update":
@@ -184,10 +228,7 @@ function DisplayScreen() {
         }
         break
       case "sound":
-        if (armedRef.current && !preview) {
-          const src = game.sounds[message.cue]
-          if (src) void new Audio(src).play().catch(() => {})
-        }
+        playSound(message.cue)
         break
     }
   })
@@ -254,6 +295,9 @@ function DisplayScreen() {
                 blue={live.blue.totals}
                 winner={current.winner}
                 winnerTeams={winnerTeamNumbers(current, boot.teams)}
+                current={current}
+                teams={boot.teams}
+                recordSide={recordSide}
                 order={order}
               />
             )}
@@ -275,14 +319,20 @@ function DisplayScreen() {
               </div>
             )}
             {view === "bracket" && (
-              <div className="relative flex h-full flex-col gap-6 overflow-y-auto p-10">
+              <div className="relative flex h-full flex-col gap-4 overflow-hidden p-6">
                 {boot.bracket.champion && (
                   <Confetti color="#facc15" count={70} />
                 )}
-                <h1 className="text-center text-4xl font-bold">
+                <h1 className="shrink-0 text-center text-4xl font-bold">
                   Playoff bracket
                 </h1>
-                <BracketGraphic bracket={boot.bracket} dark />
+                <ScaleToFit className="flex-1">
+                  <BracketGraphic
+                    bracket={boot.bracket}
+                    dark
+                    currentMatchId={field.matchId}
+                  />
+                </ScaleToFit>
               </div>
             )}
             {view === "intermission" && (
@@ -470,6 +520,9 @@ function ResultsView({
   blue,
   winner,
   winnerTeams,
+  current,
+  teams,
+  recordSide,
   order,
 }: {
   label: string
@@ -477,6 +530,18 @@ function ResultsView({
   blue: Totals
   winner: string | null
   winnerTeams: number[]
+  current: {
+    red1: string | null
+    red2: string | null
+    red3: string | null
+    red4: string | null
+    blue1: string | null
+    blue2: string | null
+    blue3: string | null
+    blue4: string | null
+  }
+  teams: { teamId: string; number: number; name: string }[]
+  recordSide: Alliance | null
   order: readonly [Alliance, Alliance]
 }) {
   const decided = winner === "red" || winner === "blue"
@@ -484,6 +549,15 @@ function ResultsView({
   const [stage, setStage] = useState<"winner" | "breakdown">(
     decided ? "winner" : "breakdown"
   )
+
+  const byId = new Map(teams.map((t) => [t.teamId, t]))
+  const teamsOf = (side: Alliance) =>
+    (side === "red"
+      ? [current.red1, current.red2, current.red3, current.red4]
+      : [current.blue1, current.blue2, current.blue3, current.blue4]
+    )
+      .map((id) => (id ? (byId.get(id) ?? null) : null))
+      .filter((t): t is (typeof teams)[number] => t !== null)
 
   useEffect(() => {
     if (stage !== "winner") return
@@ -506,6 +580,10 @@ function ResultsView({
   return (
     <div className="relative h-full">
       {decided && <Confetti color={winColor} />}
+      {/* a new event high score gets its own golden celebration */}
+      {stage === "breakdown" && recordSide && (
+        <Confetti color="#facc15" count={90} />
+      )}
 
       <AnimatePresence mode="wait">
         {stage === "winner" && decided ? (
@@ -585,16 +663,75 @@ function ResultsView({
                 "Pending"
               )}
             </div>
-            <div className="flex items-center gap-10 text-7xl font-bold tabular-nums">
-              <AnimatedNumber
-                value={totals[leftSide]?.total ?? 0}
-                style={{ color: `var(--alliance-${leftSide})` }}
-              />
-              <span className="text-3xl text-white/40">vs</span>
-              <AnimatedNumber
-                value={totals[rightSide]?.total ?? 0}
-                style={{ color: `var(--alliance-${rightSide})` }}
-              />
+            <div className="flex items-center justify-center gap-6">
+              {order.map((side, idx) => {
+                const isRecord = recordSide === side
+                const sideColor = `var(--alliance-${side})`
+                return (
+                  <Fragment key={side}>
+                    {idx > 0 && (
+                      <span className="text-3xl text-white/40">vs</span>
+                    )}
+                    <motion.div
+                      className={`flex flex-col items-center gap-3 px-6 py-4 ${
+                        isRecord
+                          ? "bg-yellow-400/10 ring-2 ring-yellow-400"
+                          : ""
+                      }`}
+                      initial={{ opacity: 0, y: 24, scale: 0.92 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{
+                        delay: 0.15 + idx * 0.12,
+                        type: "spring",
+                        stiffness: 220,
+                        damping: 20,
+                      }}
+                    >
+                      {isRecord && (
+                        <motion.div
+                          className="bg-yellow-400 px-3 py-1 text-sm font-black tracking-wider text-black uppercase"
+                          initial={{ opacity: 0, scale: 0.5 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{
+                            delay: 0.55,
+                            type: "spring",
+                            stiffness: 300,
+                            damping: 13,
+                          }}
+                        >
+                          ★ New high score
+                        </motion.div>
+                      )}
+                      <AnimatedNumber
+                        value={totals[side]?.total ?? 0}
+                        className="text-7xl font-bold tabular-nums"
+                        style={{ color: sideColor }}
+                      />
+                      <div className="flex flex-col gap-1.5">
+                        {teamsOf(side).map((team, i) => (
+                          <motion.div
+                            key={team.teamId}
+                            className="flex items-center gap-3"
+                            initial={{ opacity: 0, x: idx === 0 ? -24 : 24 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.4 + i * 0.1 }}
+                          >
+                            <span
+                              className="min-w-12 text-right text-2xl font-bold tabular-nums"
+                              style={{ color: sideColor }}
+                            >
+                              {team.number}
+                            </span>
+                            <span className="max-w-64 truncate text-lg text-white/85">
+                              {team.name}
+                            </span>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  </Fragment>
+                )
+              })}
             </div>
             <table className="text-xl">
               <tbody>

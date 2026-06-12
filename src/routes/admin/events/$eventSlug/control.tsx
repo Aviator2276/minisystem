@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import {
   BanIcon,
+  ChevronDownIcon,
   CoffeeIcon,
   DoorOpenIcon,
   FlagIcon,
@@ -36,6 +37,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -425,6 +431,7 @@ function ControlPanel() {
           bracket={loaded.bracket}
           selection={selection}
           onSelection={setSelection}
+          currentMatchId={field.matchId}
         />
       )}
 
@@ -1282,15 +1289,18 @@ function PlayoffCard({
   bracket,
   selection,
   onSelection,
+  currentMatchId,
 }: {
   eventId: string
   bracket: Parameters<typeof BracketGraphic>[0]["bracket"]
   selection: EnrichedSelectionState
   onSelection: (state: EnrichedSelectionState) => void
+  currentMatchId: string | null
 }) {
   const router = useRouter()
   const generateFn = useServerFn(generatePlayoffBracket)
   const hasPosted = bracket.matches.some((m) => m.status === "posted")
+  const [bracketOpen, setBracketOpen] = useState(true)
 
   return (
     <Card>
@@ -1323,12 +1333,24 @@ function PlayoffCard({
             </Button>
           </div>
         )}
-        <BracketGraphic bracket={bracket} />
-        <BackupRobots
-          eventId={eventId}
-          selection={selection}
-          onSelection={onSelection}
-        />
+        <Collapsible
+          open={bracketOpen}
+          onOpenChange={setBracketOpen}
+          className="flex flex-col gap-3 border-t pt-3"
+        >
+          <CollapsibleTrigger className="group flex items-center justify-between text-sm font-semibold">
+            Bracket &amp; backups
+            <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="flex flex-col gap-4">
+            <BracketGraphic bracket={bracket} currentMatchId={currentMatchId} />
+            <BackupRobots
+              eventId={eventId}
+              selection={selection}
+              onSelection={onSelection}
+            />
+          </CollapsibleContent>
+        </Collapsible>
       </CardContent>
     </Card>
   )

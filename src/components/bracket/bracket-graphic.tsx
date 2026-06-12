@@ -13,15 +13,28 @@ type BracketMatch = BracketView["matches"][number]
 export function BracketGraphic({
   bracket,
   dark = false,
+  currentMatchId = null,
 }: {
   bracket: BracketView
   dark?: boolean
+  /** the match loaded on the field — highlighted green; the next scheduled
+   * match after it is highlighted yellow */
+  currentMatchId?: string | null
 }) {
   if (bracket.matches.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">No bracket generated yet.</p>
     )
   }
+
+  // bracket.matches is in scheduledOrder; "next" is the next still-scheduled
+  // match after the current one (or the first scheduled if none is current)
+  const currentIndex = bracket.matches.findIndex((m) => m.id === currentMatchId)
+  const nextMatchId =
+    (currentIndex >= 0
+      ? bracket.matches.slice(currentIndex + 1)
+      : bracket.matches
+    ).find((m) => m.status === "scheduled")?.id ?? null
 
   const rounds = [...new Set(bracket.matches.map((m) => m.round))].sort(
     (a, b) => a - b
@@ -71,7 +84,18 @@ export function BracketGraphic({
                     className="flex min-w-36 flex-col justify-around gap-2"
                   >
                     {cell.map((match) => (
-                      <MatchCard key={match.id} match={match} dark={dark} />
+                      <MatchCard
+                        key={match.id}
+                        match={match}
+                        dark={dark}
+                        highlight={
+                          match.id === currentMatchId
+                            ? "current"
+                            : match.id === nextMatchId
+                              ? "next"
+                              : null
+                        }
+                      />
                     ))}
                   </div>
                 )
@@ -84,15 +108,45 @@ export function BracketGraphic({
   )
 }
 
-function MatchCard({ match, dark }: { match: BracketMatch; dark: boolean }) {
+function MatchCard({
+  match,
+  dark,
+  highlight,
+}: {
+  match: BracketMatch
+  dark: boolean
+  highlight: "current" | "next" | null
+}) {
   return (
     <div
       className={cn(
-        "border text-sm",
+        "relative border text-sm",
         dark ? "border-white/20 bg-white/5" : "bg-card",
-        match.bracket === "final" && "ring-2 ring-yellow-500"
+        // current match → pulsing green, next scheduled → steady yellow; these
+        // take priority over the final's subtler decorative ring. ring-inset /
+        // inset box-shadow so the highlight isn't clipped by the lane's
+        // overflow-x-auto scroll container
+        highlight === "current" && "animate-bracket-pulse",
+        highlight === "next" && "ring-2 ring-inset ring-yellow-500",
+        !highlight &&
+          match.bracket === "final" &&
+          "ring-1 ring-inset ring-yellow-500/40",
+        // reserve room below for the notch so it never overlaps the next match
+        highlight && "mb-5"
       )}
     >
+      {highlight && (
+        <span
+          className={cn(
+            "absolute top-full left-1/2 z-10 -translate-x-1/2 px-1.5 py-0.5 text-[0.55rem] font-bold tracking-wide uppercase",
+            highlight === "current"
+              ? "bg-green-500 text-white"
+              : "bg-yellow-500 text-black"
+          )}
+        >
+          {highlight === "current" ? "Current" : "Upcoming"}
+        </span>
+      )}
       <div
         className={cn(
           "flex items-center justify-between border-b px-2 py-0.5 text-[0.65rem]",

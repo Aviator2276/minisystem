@@ -118,6 +118,7 @@ function JudgePage() {
   const submitFn = useServerFn(judgeSubmit)
   const resumeFn = useServerFn(judgeResume)
   const leaveFn = useServerFn(judgeLeave)
+  const listMatchesFn = useServerFn(listMatches)
 
   const current = matches.find((m) => m.id === field.matchId) ?? null
 
@@ -135,7 +136,9 @@ function JudgePage() {
         if (!cancelled) setFmsOnline(false)
       }
     }
-    void ping(() => checkInFn({ data: { eventId: event.id, judgeId, alliance } }))
+    void ping(() =>
+      checkInFn({ data: { eventId: event.id, judgeId, alliance } })
+    )
     const interval = setInterval(() => {
       void ping(() => heartbeatFn({ data: { eventId: event.id, judgeId } }))
     }, 5000)
@@ -188,6 +191,23 @@ function JudgePage() {
     })
     setUndoStack([])
     setSubmittedMatchId(null)
+  }, [field.matchId])
+
+  // playoff matches get their alliances filled lazily by resolveBracket as
+  // feeders post, so the queued match can resolve after this page loaded. The
+  // loader snapshot would then show an unresolved match as a single robot —
+  // refetch the roster whenever the queued match changes so the team slots are
+  // current.
+  useEffect(() => {
+    let cancelled = false
+    void listMatchesFn({ data: { eventId: event.id } })
+      .then((freshMatches) => {
+        if (!cancelled) setMatches(freshMatches)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [field.matchId])
 
   if (alliance === null) {
@@ -252,7 +272,9 @@ function JudgePage() {
           </button>
 
           <div className="text-center leading-none">
-            <div className="text-3xl font-bold tabular-nums">{myTotal ?? 0}</div>
+            <div className="text-3xl font-bold tabular-nums">
+              {myTotal ?? 0}
+            </div>
             <div className="text-[0.6rem] opacity-80">total pts</div>
           </div>
 
@@ -543,7 +565,11 @@ function AutoSection({
                 selected={choice === "cross"}
                 disabled={busy || choice === "cross"}
                 onClick={() =>
-                  record("AUTO_CROSS", { robotIndex: i }, `R${i + 1} Auto Cross`)
+                  record(
+                    "AUTO_CROSS",
+                    { robotIndex: i },
+                    `R${i + 1} Auto Cross`
+                  )
                 }
               />
             </div>
@@ -555,9 +581,7 @@ function AutoSection({
             count={state.boulders.autoHigh}
             disabled={busy}
             className="h-14"
-            onClick={() =>
-              record("AUTO_HIGH_GOAL", {}, "Auto High Goal")
-            }
+            onClick={() => record("AUTO_HIGH_GOAL", {}, "Auto High Goal")}
           />
           <CounterButton
             label="Low Goal"
@@ -702,7 +726,11 @@ function EndgameSection({
                   selected={choice === opt.value}
                   disabled={busy || choice === opt.value}
                   onClick={() =>
-                    record(opt.type, { robotIndex: i }, `R${i + 1} ${opt.label}`)
+                    record(
+                      opt.type,
+                      { robotIndex: i },
+                      `R${i + 1} ${opt.label}`
+                    )
                   }
                 />
               ))}
@@ -806,7 +834,9 @@ function CounterButton({
       )}
     >
       <span>{label}</span>
-      <span className="font-mono text-base font-bold tabular-nums">{count}</span>
+      <span className="font-mono text-base font-bold tabular-nums">
+        {count}
+      </span>
     </button>
   )
 }

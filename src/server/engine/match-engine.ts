@@ -6,6 +6,7 @@ import type { GameDefinition } from "@/games/types"
 import { getEvent } from "@/server/services/events"
 import { getMatch } from "@/server/services/matches"
 import { resetMatchScores } from "@/server/services/scoring"
+import type { CachedAllianceScore } from "@/server/services/scoring"
 import type { Channel, ServerMessage } from "@/shared/realtime-messages"
 
 /**
@@ -156,6 +157,7 @@ export class MatchEngine {
     s.phase = "fault"
     s.phaseEndsAt = null
     this.broadcastState(eventId)
+    this.publishScore(eventId, s.matchId)
     this.publishFn(eventId, "all", { type: "sound", cue: "field-fault" })
     this.publishFn(eventId, "all", {
       type: "toast",
@@ -177,16 +179,9 @@ export class MatchEngine {
     s.phase = "no_entry"
     s.phaseEndsAt = null
     this.broadcastState(eventId)
-    this.publishFn(eventId, "all", {
-      type: "score_update",
-      matchId: s.matchId,
-      status: "scheduled",
-      winner: null,
-      red: null,
-      blue: null,
-      redState: null,
-      blueState: null,
-    })
+    // resetMatchScores cleared the cache, so this re-broadcasts status
+    // "scheduled" with null scores
+    this.publishScore(eventId, s.matchId)
     return this.getFieldState(eventId)
   }
 
@@ -318,6 +313,7 @@ export class MatchEngine {
     s.phase = "post_match"
     s.phaseEndsAt = null
     this.broadcastState(eventId)
+    if (s.matchId) this.publishScore(eventId, s.matchId)
     this.publishFn(eventId, "all", { type: "sound", cue: "match-end" })
   }
 
@@ -329,6 +325,26 @@ export class MatchEngine {
       phase: s.phase,
       phaseEndsAt: s.phaseEndsAt,
       serverNow: Date.now(),
+    })
+  }
+
+  /**
+   * Broadcast a match's current status + cached scores. `match_state` carries
+   * the field/timer state but not the match record's status, so when the engine
+   * flips a match to "scored" (match end / field fault) clients need this to
+   * enable "Publish results" without a reload.
+   */
+  private publishScore(eventId: string, matchId: string): void {
+    const match = getMatch(this.db, matchId)
+    this.publishFn(eventId, "all", {
+      type: "score_update",
+      matchId,
+      status: match.status,
+      winner: match.winner ?? null,
+      red: (match.redScore as CachedAllianceScore | null)?.totals ?? null,
+      blue: (match.blueScore as CachedAllianceScore | null)?.totals ?? null,
+      redState: (match.redScore as CachedAllianceScore | null)?.state ?? null,
+      blueState: (match.blueScore as CachedAllianceScore | null)?.state ?? null,
     })
   }
 

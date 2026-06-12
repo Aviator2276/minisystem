@@ -104,6 +104,13 @@ describe("match engine", () => {
 
     const match = db.select().from(tables.matches).all()[0]
     expect(match.status).toBe("scored")
+
+    // clients learn the new "scored" status via a score_update, so the control
+    // panel can enable "Publish results" without a reload
+    expect(messagesOf("score_update").at(-1)).toMatchObject({
+      matchId,
+      status: "scored",
+    })
   })
 
   it("publishes absolute phase deadlines", () => {
@@ -151,6 +158,12 @@ describe("match engine", () => {
     const match = db.select().from(tables.matches).all()[0]
     expect(match.status).toBe("scored")
     expect(db.select().from(tables.scoreEvents).all()).toHaveLength(1)
+
+    // a field fault also flips the match to "scored"; clients need to hear it
+    expect(messagesOf("score_update").at(-1)).toMatchObject({
+      matchId,
+      status: "scored",
+    })
   })
 
   it("replay clears score events and re-arms the match", () => {

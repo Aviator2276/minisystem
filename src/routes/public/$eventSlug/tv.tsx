@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
+import { ScaleToFit } from "@/components/scale-to-fit"
 import { useRealtime } from "@/hooks/use-realtime"
 import {
   RANKINGS_PAGE_MS,
@@ -117,9 +118,18 @@ function TvMode() {
               />
             )}
             {panel === "bracket" && (
-              <Centered title="Playoff bracket">
-                <BracketGraphic bracket={boot.bracket} dark />
-              </Centered>
+              <div className="flex h-full flex-col gap-4 overflow-hidden">
+                <h1 className="shrink-0 text-center text-4xl font-bold">
+                  Playoff bracket
+                </h1>
+                <ScaleToFit className="flex-1">
+                  <BracketGraphic
+                    bracket={boot.bracket}
+                    dark
+                    currentMatchId={field.matchId}
+                  />
+                </ScaleToFit>
+              </div>
             )}
             {panel === "info" && (
               <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
