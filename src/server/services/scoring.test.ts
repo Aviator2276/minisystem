@@ -3,7 +3,7 @@ import { tables } from "@/db"
 import type { Db } from "@/db"
 import { createTestDb } from "@/db/db.test"
 import { PointValues } from "@/games/stronghold"
-import { attachTeams, createEvent } from "./events"
+import { adjustRankingPoints, attachTeams, createEvent } from "./events"
 import { computeRankings } from "./rankings"
 import {
   postMatch,
@@ -164,6 +164,22 @@ describe("rankings", () => {
         .sort()
     ).toEqual([1, 2, 3])
     expect(rankings[0].rank).toBe(1)
+  })
+
+  it("ranking points = earned RP plus the signed manual adjustment", () => {
+    const [t1, t2, t3, t4, t5, t6] = teamIds
+    const m1 = makeMatch(1, [t1, t2, t3], [t4, t5, t6])
+    score(m1.id, "red", "HIGH_GOAL") // red wins → 2 RP each
+    postMatch(db, m1.id)
+
+    const pointsOf = (n: number) =>
+      computeRankings(db, eventId).find((r) => r.number === n)!.rankingPoints
+
+    expect(pointsOf(1)).toBe(2) // earned only, manual 0
+    adjustRankingPoints(db, eventId, t1, 3)
+    expect(pointsOf(1)).toBe(5) // 2 earned + 3 manual
+    adjustRankingPoints(db, eventId, t1, -4)
+    expect(pointsOf(1)).toBe(1) // 2 + (3 - 4); adjustment may go negative
   })
 
   it("excludes surrogate appearances from rankings", () => {

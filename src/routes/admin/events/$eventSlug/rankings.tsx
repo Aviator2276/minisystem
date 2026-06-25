@@ -127,11 +127,13 @@ function TeamsPage() {
   }
 
   async function adjust(teamId: string, delta: number) {
-    // optimistic; the server returns the authoritative recomputed rankings
+    // optimistic; the server returns the authoritative recomputed rankings.
+    // rankingPoints is the total (earned + manual), and the manual delta moves
+    // it directly, so we just add delta here
     setRows((prev) =>
       prev.map((r) =>
         r.teamId === teamId
-          ? { ...r, rankingPoints: Math.max(0, r.rankingPoints + delta) }
+          ? { ...r, rankingPoints: r.rankingPoints + delta }
           : r
       )
     )

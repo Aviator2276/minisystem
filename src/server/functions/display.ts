@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start"
-import { eq } from "drizzle-orm"
+import { desc, eq } from "drizzle-orm"
 import { z } from "zod"
 import { db, tables } from "@/db"
 import { getMatchEngine } from "@/server/engine/instance"
@@ -79,7 +79,7 @@ export const getDisplayBootstrap = createServerFn()
     }
   })
 
-/** public list of events for the landing page */
+/** public list of events for the landing page, newest first */
 export const listPublicEvents = createServerFn()
   .middleware([publicRateLimit])
   .handler(() =>
@@ -91,5 +91,6 @@ export const listPublicEvents = createServerFn()
         status: tables.events.status,
       })
       .from(tables.events)
+      .orderBy(desc(tables.events.createdAt))
       .all()
   )

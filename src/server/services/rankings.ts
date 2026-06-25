@@ -11,7 +11,11 @@ export interface RankingRow extends RankingInput {
   number: number
   name: string
   rank: number
-  /** manual admin adjustment; primary ranking key (0 = no-op) */
+  /**
+   * Total ranking points = points earned from matches (`rp`: 2/win, 1/tie) plus
+   * the manual admin adjustment (`event_teams.rankingPoints`). This is the
+   * primary ranking key.
+   */
   rankingPoints: number
   wins: number
   losses: number
@@ -21,6 +25,8 @@ export interface RankingRow extends RankingInput {
 export function computeRankings(db: Db, eventId: string): RankingRow[] {
   const game = getGame(getEvent(db, eventId).gameId)
   const roster = listEventTeams(db, eventId)
+  // manual +/- adjustment per team; folded into the total ranking points below
+  const manualOf = new Map(roster.map((t) => [t.teamId, t.rankingPoints]))
 
   const rows = new Map<string, RankingRow>(
     roster.map((t) => [
@@ -30,7 +36,7 @@ export function computeRankings(db: Db, eventId: string): RankingRow[] {
         number: t.number,
         name: t.name,
         rank: 0,
-        rankingPoints: t.rankingPoints,
+        rankingPoints: 0,
         rp: 0,
         matchesPlayed: 0,
         autoPoints: 0,
@@ -92,9 +98,13 @@ export function computeRankings(db: Db, eventId: string): RankingRow[] {
     }
   }
 
-  // manual ranking points lead the order; the game's computed comparator (avg
-  // RP + tiebreakers) settles teams with equal ranking points, so an untouched
-  // event (all 0) ranks exactly as before
+  // total ranking points = earned RP + manual adjustment
+  for (const row of rows.values()) {
+    row.rankingPoints = row.rp + (manualOf.get(row.teamId) ?? 0)
+  }
+
+  // rank by total ranking points; the game's computed comparator (avg RP +
+  // tiebreakers) settles teams that are level on ranking points
   const sorted = [...rows.values()].sort(
     (a, b) => b.rankingPoints - a.rankingPoints || game.compareRankings(a, b)
   )

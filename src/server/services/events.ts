@@ -123,8 +123,9 @@ export function listEventTeams(db: Db, eventId: string) {
 }
 
 /**
- * Nudge a team's manual ranking points by `delta` (admin +1/-1), clamped at 0.
- * Returns the new value.
+ * Nudge a team's manual ranking-points adjustment by `delta` (admin +1/-1).
+ * Signed (may go negative) so an admin can dock points below what a team has
+ * earned from matches. Returns the new adjustment value.
  */
 export function adjustRankingPoints(
   db: Db,
@@ -143,7 +144,7 @@ export function adjustRankingPoints(
     )
     .get()
   if (!row) throw new Error("Team is not on this event roster")
-  const next = Math.max(0, row.rankingPoints + delta)
+  const next = row.rankingPoints + delta
   db.update(tables.eventTeams)
     .set({ rankingPoints: next })
     .where(
