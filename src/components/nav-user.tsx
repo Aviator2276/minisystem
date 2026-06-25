@@ -40,7 +40,7 @@ export function NavUser({
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <Avatar className="h-8 w-8 rounded-none after:rounded-none grayscale">
+              <Avatar className="h-8 w-8 rounded-none grayscale after:rounded-none">
                 <AvatarFallback className="rounded-none">
                   {initials}
                 </AvatarFallback>

@@ -89,8 +89,14 @@ function TeamLoginPage() {
                 autoFocus
               >
                 <InputOTPGroup className="gap-2">
-                  <InputOTPSlot index={0} className="size-16 border-l text-3xl" />
-                  <InputOTPSlot index={1} className="size-16 border-l text-3xl" />
+                  <InputOTPSlot
+                    index={0}
+                    className="size-16 border-l text-3xl"
+                  />
+                  <InputOTPSlot
+                    index={1}
+                    className="size-16 border-l text-3xl"
+                  />
                 </InputOTPGroup>
               </InputOTP>
             </div>

@@ -29,9 +29,7 @@ export type DisplayView = (typeof DISPLAY_VIEWS)[number]
 
 export const setDisplayView = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .validator(
-    z.object({ eventId: z.string(), view: z.enum(DISPLAY_VIEWS) })
-  )
+  .validator(z.object({ eventId: z.string(), view: z.enum(DISPLAY_VIEWS) }))
   .handler(({ data }) => {
     db.update(tables.events)
       .set({ displayView: data.view })

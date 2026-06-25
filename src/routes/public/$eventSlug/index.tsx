@@ -42,7 +42,8 @@ function PublicEventPage() {
       message.type === "bracket_update" ||
       message.type === "match_state" ||
       message.type === "settings_update" ||
-      message.type === "cards_update"
+      message.type === "cards_update" ||
+      message.type === "rankings_update"
     ) {
       void router.invalidate()
     }
@@ -105,6 +106,7 @@ function PublicEventPage() {
               <TableRow>
                 <TableHead>#</TableHead>
                 <TableHead>Team</TableHead>
+                <TableHead className="text-right">Ranking pts</TableHead>
                 <TableHead className="text-right">Avg RP</TableHead>
                 <TableHead className="text-right">W-L-T</TableHead>
                 <TableHead className="text-right">Played</TableHead>
@@ -131,6 +133,9 @@ function PublicEventPage() {
                         </span>
                         {cards && <TeamCards cards={cards} size="sm" />}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-right font-mono font-bold tabular-nums">
+                      {row.rankingPoints}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {row.matchesPlayed > 0

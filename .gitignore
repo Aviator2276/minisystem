@@ -14,3 +14,6 @@ todos.json
 
 # typescript
 *.tsbuildinfo
+
+# local Claude Code guidance (untracked)
+.claude/CLAUDE.md

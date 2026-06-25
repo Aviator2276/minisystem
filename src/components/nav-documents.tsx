@@ -104,7 +104,7 @@ export function NavEvents({
                     params={{ eventSlug: event.slug }}
                   >
                     <BarChart3Icon />
-                    <span>Rankings</span>
+                    <span>Teams</span>
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>

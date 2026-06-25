@@ -21,6 +21,13 @@ interface Line {
   y2: number
   /** x of the vertical segment — its own channel so lines don't overlap */
   vx: number
+  /**
+   * When set, the connector is "backward" (source is to the right of the
+   * destination, e.g. lower-bracket final → F1 in best-of-3). Draw an S-shape:
+   * up from x1 to midY, left to x2-6, up to y2, right into x2. This avoids
+   * routing the horizontal return segment through the destination card.
+   */
+  midY?: number
 }
 
 // emerald reads clearly on both the light admin panel and dark arena/TV screens
@@ -73,6 +80,11 @@ export function BracketGraphic({
   const connectors = useMemo<Connector[]>(() => {
     const out: Connector[] = []
     for (const m of bracket.matches) {
+      // best-of-3 games 2 & 3 are a rematch of the same two finalists, not fed
+      // by other matches' winners — drawing their winner:M.. lines clutters the
+      // flow, so only the first final keeps its incoming feeder lines. Instead
+      // we chain F1 → F2 → F3 below so the series reads as a left-to-right row.
+      if (m.bracketSlot === "F2" || m.bracketSlot === "F3") continue
       for (const side of ["red", "blue"] as const) {
         const src = side === "red" ? m.redSource : m.blueSource
         if (!src) continue
@@ -81,6 +93,12 @@ export function BracketGraphic({
           out.push({ from: key, to: `${m.bracketSlot}:${side}` })
         }
       }
+    }
+    // chain the best-of-3 finals games in succession: F1 → F2 → F3
+    for (const m of bracket.matches) {
+      const fm = /^F([23])$/.exec(m.bracketSlot ?? "")
+      if (fm)
+        out.push({ from: `F${Number(fm[1]) - 1}`, to: `${m.bracketSlot}:red` })
     }
     return out
   }, [bracket.matches])
@@ -98,23 +116,33 @@ export function BracketGraphic({
         if (!fromEl || !toEl) continue
         const f = offsetWithin(fromEl, container)
         const t = offsetWithin(toEl, container)
+        const x1 = f.x + fromEl.offsetWidth
+        const y1 = f.y + fromEl.offsetHeight / 2
+        const x2 = t.x
+        const y2 = t.y + toEl.offsetHeight / 2
+        // When the source card is to the right of the destination (e.g. the
+        // lower-bracket final feeding F1 in best-of-3, where lane column-
+        // packing places it beyond F1's column), routing straight to x2 draws
+        // the return horizontal segment through F1's card body. Instead mark
+        // it as a backward line and use an S-shape path at render time.
+        const backward = x1 >= x2
         next.push({
-          // the line always exits the source card's right edge and enters the
-          // left edge of the destination row
-          x1: f.x + fromEl.offsetWidth,
-          y1: f.y + fromEl.offsetHeight / 2,
-          x2: t.x,
-          y2: t.y + toEl.offsetHeight / 2,
-          vx: 0, // assigned below
+          x1,
+          y1,
+          x2,
+          y2,
+          vx: 0, // assigned below for forward lines
+          midY: backward ? (y1 + y2) / 2 : undefined,
         })
       }
 
-      // Give every line feeding the same destination column its own vertical
-      // channel in the gutter just left of that column, so their vertical
-      // segments sit side by side instead of overlapping. Clamp the channel to
-      // the right of the source so a line never routes back out the left edge.
+      // Give every forward line feeding the same destination column its own
+      // vertical channel in the gutter just left of that column, so their
+      // vertical segments sit side by side instead of overlapping. Backward
+      // (S-shape) lines skip this — their routing is fixed.
       const byColumn = new Map<number, Line[]>()
       for (const l of next) {
+        if (l.midY !== undefined) continue
         const key = Math.round(l.x2)
         const group = byColumn.get(key)
         if (group) group.push(l)
@@ -194,17 +222,30 @@ export function BracketGraphic({
             shapeRendering="crispEdges"
             aria-hidden
           >
-            {lines.map((l, i) => (
-              // square elbow: out the right edge, across to this line's channel,
-              // straight down, then into the destination
-              <path
-                key={i}
-                d={`M ${l.x1} ${l.y1} H ${l.vx} V ${l.y2} H ${l.x2}`}
-                fill="none"
-                stroke={WINNER_STROKE}
-                strokeWidth={2}
-              />
-            ))}
+            {lines.map((l, i) =>
+              l.midY !== undefined ? (
+                // S-shape for backward connectors (source to the right of dest):
+                // up from source right edge → left across the inter-lane gap →
+                // up to dest row → short right segment into dest left edge
+                <path
+                  key={i}
+                  d={`M ${l.x1} ${l.y1} V ${l.midY} H ${l.x2 - 6} V ${l.y2} H ${l.x2}`}
+                  fill="none"
+                  stroke={WINNER_STROKE}
+                  strokeWidth={2}
+                />
+              ) : (
+                // normal forward elbow: out the right edge, across to this
+                // line's channel, straight down/up, then into the destination
+                <path
+                  key={i}
+                  d={`M ${l.x1} ${l.y1} H ${l.vx} V ${l.y2} H ${l.x2}`}
+                  fill="none"
+                  stroke={WINNER_STROKE}
+                  strokeWidth={2}
+                />
+              )
+            )}
           </svg>
 
           <div className="relative z-10 flex flex-col gap-4">
@@ -312,10 +353,10 @@ function MatchCard({
         // inset box-shadow so the highlight isn't clipped by the lane's
         // overflow-x-auto scroll container
         highlight === "current" && "animate-bracket-pulse",
-        highlight === "next" && "ring-2 ring-inset ring-yellow-500",
+        highlight === "next" && "ring-2 ring-yellow-500 ring-inset",
         !highlight &&
           match.bracket === "final" &&
-          "ring-1 ring-inset ring-yellow-500/40",
+          "ring-1 ring-yellow-500/40 ring-inset",
         // reserve room below for the notch so it never overlaps the next match
         highlight && "mb-5"
       )}
@@ -343,7 +384,7 @@ function MatchCard({
           dark ? "border-white/20 text-white/50" : "text-muted-foreground"
         )}
       >
-        <span>{slot === "F" ? "FINAL" : slot}</span>
+        <span>{finalSlotLabel(slot)}</span>
         {match.status === "posted" && <Badge variant="secondary">done</Badge>}
       </div>
       <SideRow
@@ -416,6 +457,13 @@ function SideRow({
       {won && <span className="text-[0.6rem]">◀</span>}
     </div>
   )
+}
+
+/** Header label for a bracket card: the grand final(s) read "FINAL"/"FINAL 1". */
+function finalSlotLabel(slot: string): string {
+  if (slot === "F") return "FINAL"
+  const m = /^F([123])$/.exec(slot)
+  return m ? `FINAL ${m[1]}` : slot
 }
 
 function sourceLabel(source: string | null): string {

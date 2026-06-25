@@ -45,7 +45,8 @@ function TvMode() {
       message.type === "score_update" ||
       message.type === "bracket_update" ||
       message.type === "settings_update" ||
-      message.type === "cards_update"
+      message.type === "cards_update" ||
+      message.type === "rankings_update"
     ) {
       void router.invalidate()
     }
@@ -195,6 +196,7 @@ function TvRankings({
     rank: number
     number: number
     name: string
+    rankingPoints: number
     rp: number
     matchesPlayed: number
     wins: number
@@ -225,6 +227,9 @@ function TvRankings({
               <td className="px-4 py-1">
                 <span className="font-bold tabular-nums">{row.number}</span>{" "}
                 {row.name}
+              </td>
+              <td className="px-4 py-1 text-right font-bold tabular-nums">
+                {row.rankingPoints}
               </td>
               <td className="px-4 py-1 text-right tabular-nums">
                 {row.matchesPlayed > 0

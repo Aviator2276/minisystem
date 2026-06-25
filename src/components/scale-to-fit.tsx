@@ -30,7 +30,9 @@ export function ScaleToFit({
       const iw = content.offsetWidth
       const ih = content.offsetHeight
       if (iw === 0 || ih === 0) return
-      setScale(Math.min(container.clientWidth / iw, container.clientHeight / ih))
+      setScale(
+        Math.min(container.clientWidth / iw, container.clientHeight / ih)
+      )
     }
     recompute()
 

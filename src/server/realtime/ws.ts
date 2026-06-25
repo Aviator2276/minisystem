@@ -55,7 +55,10 @@ export function getWsAdapter(): NodeAdapter {
       hooks: {
         open(peer) {
           const ip = peerIp(peer)
-          if (ip && consume(`ws:${ip}`, WS_OPEN_MAX, WS_OPEN_WINDOW_MS).blocked) {
+          if (
+            ip &&
+            consume(`ws:${ip}`, WS_OPEN_MAX, WS_OPEN_WINDOW_MS).blocked
+          ) {
             peer.close(1013, "rate limited") // 1013 = try again later
             return
           }

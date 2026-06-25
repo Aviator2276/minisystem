@@ -88,6 +88,7 @@ import { listMatches } from "@/server/functions/matches"
 import {
   generatePlayoffBracket,
   getBracketView,
+  setFinalsBestOf3,
 } from "@/server/functions/playoffs"
 import {
   getSelection,
@@ -190,6 +191,10 @@ function ControlPanel() {
   const [flipSides, setFlipSides] = useState(
     event.settings.flipAllianceSides ?? false
   )
+  const [advanceOnLineup, setAdvanceOnLineup] = useState(false)
+  const [finalsBo3, setFinalsBo3] = useState(
+    event.settings.finalsBestOf3 ?? false
+  )
   const [cards, setCards] = useState(loaded.cards)
   const order = allianceOrder(flipSides)
 
@@ -267,6 +272,9 @@ function ControlPanel() {
     }
     if (message.type === "settings_update") {
       setFlipSides(message.flipAllianceSides)
+      if (message.finalsBestOf3 !== undefined) {
+        setFinalsBo3(message.finalsBestOf3)
+      }
     }
     if (message.type === "bracket_update") {
       void router.invalidate()
@@ -288,6 +296,30 @@ function ControlPanel() {
   const replayFn = useServerFn(replayMatch)
   const judgeStatusFn = useServerFn(getJudgeStatus)
   const listCardsFn = useServerFn(listCards)
+  const flipFn = useServerFn(setFlipAllianceSides)
+  const finalsFn = useServerFn(setFinalsBestOf3)
+
+  async function toggleFlip(next: boolean) {
+    setFlipSides(next) // optimistic; the settings_update broadcast confirms it
+    try {
+      await flipFn({ data: { eventId, flip: next } })
+    } catch (error) {
+      setFlipSides(!next)
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function toggleFinals(next: boolean) {
+    setFinalsBo3(next) // optimistic
+    try {
+      await finalsFn({ data: { eventId, value: next } })
+      // toggling regenerates the bracket when one exists — refresh the queue
+      await router.invalidate()
+    } catch (error) {
+      setFinalsBo3(!next)
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   // fallback poll catches judges pruned for inactivity (no event fires for them)
   useEffect(() => {
@@ -367,61 +399,88 @@ function ControlPanel() {
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Phase controls</CardTitle>
+            <CardTitle>Control</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium">Field entry</span>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  disabled={field.running}
-                  onClick={() => run(() => noEntryFn({ data: { eventId } }))}
-                >
-                  <BanIcon className="size-4" />
-                  Do not enter
-                </Button>
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  disabled={field.running}
-                  onClick={() => run(() => safeFn({ data: { eventId } }))}
-                >
-                  <DoorOpenIcon className="size-4" />
-                  Safe to enter
-                </Button>
+          <CardContent className="grid gap-6 sm:grid-cols-2">
+            {/* left column: field entry + match control */}
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium">Field entry</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    disabled={field.running}
+                    onClick={() => run(() => noEntryFn({ data: { eventId } }))}
+                  >
+                    <BanIcon className="size-4" />
+                    Do not enter
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    disabled={field.running}
+                    onClick={() => run(() => safeFn({ data: { eventId } }))}
+                  >
+                    <DoorOpenIcon className="size-4" />
+                    Safe to enter
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium">Match control</span>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button
+                    className="gap-2"
+                    disabled={
+                      field.running ||
+                      !current ||
+                      current.status !== "scheduled"
+                    }
+                    onClick={() => run(() => playFn({ data: { eventId } }))}
+                  >
+                    Play match
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="gap-2"
+                    disabled={!field.running}
+                    onClick={() => run(() => faultFn({ data: { eventId } }))}
+                  >
+                    Field fault
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="gap-2"
+                    disabled={!canReplay}
+                    onClick={() => run(() => replayFn({ data: { eventId } }))}
+                  >
+                    Replay match
+                  </Button>
+                </div>
               </div>
             </div>
+            {/* right column: field settings */}
             <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium">Match control</span>
-              <div className="grid grid-cols-3 gap-2">
-                <Button
-                  className="gap-2"
-                  disabled={
-                    field.running || !current || current.status !== "scheduled"
-                  }
-                  onClick={() => run(() => playFn({ data: { eventId } }))}
-                >
-                  Play match
-                </Button>
-                <Button
-                  variant="destructive"
-                  className="gap-2"
-                  disabled={!field.running}
-                  onClick={() => run(() => faultFn({ data: { eventId } }))}
-                >
-                  Field fault
-                </Button>
-                <Button
-                  variant="secondary"
-                  className="gap-2"
-                  disabled={!canReplay}
-                  onClick={() => run(() => replayFn({ data: { eventId } }))}
-                >
-                  Replay match
-                </Button>
-              </div>
+              <span className="text-sm font-medium">Settings</span>
+              <SettingSwitch
+                id="flip-alliance-sides"
+                label="Blue on left"
+                checked={flipSides}
+                onCheckedChange={(checked) => void toggleFlip(checked)}
+              />
+              <SettingSwitch
+                id="advance-on-lineup"
+                label="Advance on lineup"
+                checked={advanceOnLineup}
+                onCheckedChange={setAdvanceOnLineup}
+              />
+              <SettingSwitch
+                id="finals-best-of-3"
+                label="Finals best of 3"
+                checked={finalsBo3}
+                onCheckedChange={(checked) => void toggleFinals(checked)}
+              />
             </div>
           </CardContent>
         </Card>
@@ -448,10 +507,9 @@ function ControlPanel() {
         eventId={eventId}
         eventSlug={event.slug}
         view={view}
-        flipSides={flipSides}
-        onFlipSides={setFlipSides}
         matchEnded={field.phase === "post_match"}
         onSafeToEnter={() => safeFn({ data: { eventId } })}
+        advanceOnLineup={advanceOnLineup}
         nextMatchId={nextMatchId}
         onQueueMatch={(matchId) => setMatchFn({ data: { eventId, matchId } })}
       />
@@ -510,6 +568,28 @@ function ControlPanel() {
           />
         ))}
       </div>
+    </div>
+  )
+}
+
+/** A labeled settings toggle row used in the Control card's settings column. */
+function SettingSwitch({
+  id,
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  id: string
+  label: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <Label htmlFor={id} className="text-sm font-medium text-foreground">
+        {label}
+      </Label>
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
     </div>
   )
 }
@@ -1045,26 +1125,22 @@ function DisplayCard({
   eventId,
   eventSlug,
   view,
-  flipSides,
-  onFlipSides,
   matchEnded,
   onSafeToEnter,
+  advanceOnLineup,
   nextMatchId,
   onQueueMatch,
 }: {
   eventId: string
   eventSlug: string
   view: DisplayView
-  flipSides: boolean
-  onFlipSides: (flip: boolean) => void
   matchEnded: boolean
   onSafeToEnter: () => Promise<unknown>
+  advanceOnLineup: boolean
   nextMatchId: string | null
   onQueueMatch: (matchId: string) => Promise<unknown>
 }) {
   const setViewFn = useServerFn(setDisplayView)
-  const flipFn = useServerFn(setFlipAllianceSides)
-  const [advanceOnLineup, setAdvanceOnLineup] = useState(false)
 
   async function switchTo(candidate: DisplayView) {
     try {
@@ -1080,16 +1156,6 @@ function DisplayCard({
         await onQueueMatch(nextMatchId)
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  async function toggleFlip(next: boolean) {
-    onFlipSides(next) // optimistic; the settings_update broadcast confirms it
-    try {
-      await flipFn({ data: { eventId, flip: next } })
-    } catch (error) {
-      onFlipSides(!next)
       toast.error(error instanceof Error ? error.message : String(error))
     }
   }
@@ -1122,32 +1188,6 @@ function DisplayCard({
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="flip-alliance-sides"
-                checked={flipSides}
-                onCheckedChange={(checked) => void toggleFlip(checked)}
-              />
-              <Label
-                htmlFor="flip-alliance-sides"
-                className="text-sm font-normal text-muted-foreground"
-              >
-                Blue on left
-              </Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="advance-on-lineup"
-                checked={advanceOnLineup}
-                onCheckedChange={setAdvanceOnLineup}
-              />
-              <Label
-                htmlFor="advance-on-lineup"
-                className="text-sm font-normal text-muted-foreground"
-              >
-                Advance on lineup
-              </Label>
-            </div>
             <Badge variant="secondary" className="gap-1.5">
               <LiveIcon className="size-3.5" />
               Live: {VIEW_LABELS[view]}

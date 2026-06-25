@@ -121,6 +121,17 @@ function DisplayScreen() {
   const order = allianceOrder(boot.event.flipAllianceSides)
   const current = matches.find((m) => m.id === field.matchId) ?? null
 
+  // during playoffs, surface each side's alliance number (from the bracket) on
+  // the lineup + results screens; null for quals/practice (no alliances)
+  const bracketCurrent =
+    boot.bracket.matches.find((m) => m.id === current?.id) ?? null
+  const allianceNumbers = bracketCurrent
+    ? {
+        red: bracketCurrent.redAllianceNumber,
+        blue: bracketCurrent.blueAllianceNumber,
+      }
+    : null
+
   // event-specific high score: the best single-alliance score from every OTHER
   // posted match. The shown results match sets a new record when its top
   // alliance beats it — that alliance gets the highlight + confetti.
@@ -220,6 +231,9 @@ function DisplayScreen() {
       case "cards_update":
         void router.invalidate() // team card graphics ride the loader
         break
+      case "rankings_update":
+        void router.invalidate() // rankings (incl. ranking points) ride the loader
+        break
       case "toast":
         if (
           message.message !== "Do not enter the field" &&
@@ -307,6 +321,7 @@ function DisplayScreen() {
                 teams={boot.teams}
                 recordSide={recordSide}
                 order={order}
+                allianceNumbers={allianceNumbers}
               />
             )}
             {view === "lineup" && (
@@ -315,6 +330,7 @@ function DisplayScreen() {
                 current={current}
                 teams={boot.teams}
                 order={order}
+                allianceNumbers={allianceNumbers}
               />
             )}
             {view === "rankings" && <RankingsView rankings={boot.rankings} />}
@@ -546,6 +562,7 @@ function ResultsView({
   teams,
   recordSide,
   order,
+  allianceNumbers,
 }: {
   label: string
   red: Totals
@@ -565,6 +582,7 @@ function ResultsView({
   teams: { teamId: string; number: number; name: string }[]
   recordSide: Alliance | null
   order: readonly [Alliance, Alliance]
+  allianceNumbers: Record<Alliance, number | null> | null
 }) {
   const decided = winner === "red" || winner === "blue"
   // stage 1: winner reveal with confetti; stage 2: full score breakdown
@@ -640,6 +658,17 @@ function ResultsView({
             >
               WINS THE MATCH
             </motion.div>
+            {allianceNumbers?.[winner] != null && (
+              <motion.div
+                className="px-4 py-1 text-2xl font-black tracking-wider text-white uppercase tabular-nums"
+                style={{ backgroundColor: winColor }}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.55 }}
+              >
+                Alliance {allianceNumbers[winner]}
+              </motion.div>
+            )}
             <div className="flex gap-3">
               {winnerTeams.map((number, i) => (
                 <motion.div
@@ -709,6 +738,22 @@ function ResultsView({
                         damping: 20,
                       }}
                     >
+                      {allianceNumbers?.[side] != null && (
+                        <motion.div
+                          className="px-3 py-0.5 text-base font-black tracking-wider text-white uppercase tabular-nums"
+                          style={{ backgroundColor: sideColor }}
+                          initial={{ opacity: 0, scale: 0.7 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{
+                            delay: 0.25 + idx * 0.12,
+                            type: "spring",
+                            stiffness: 280,
+                            damping: 16,
+                          }}
+                        >
+                          Alliance {allianceNumbers[side]}
+                        </motion.div>
+                      )}
                       {isRecord && (
                         <motion.div
                           className="bg-yellow-400 px-3 py-1 text-sm font-black tracking-wider text-black uppercase"
@@ -793,6 +838,7 @@ function LineupView({
   current,
   teams,
   order,
+  allianceNumbers,
 }: {
   label: string
   current: {
@@ -812,6 +858,7 @@ function LineupView({
     participants: string[]
   }[]
   order: readonly [Alliance, Alliance]
+  allianceNumbers: Record<Alliance, number | null> | null
 }) {
   const byId = new Map(teams.map((t) => [t.teamId, t]))
   const lineup = (ids: (string | null)[]) =>
@@ -875,15 +922,27 @@ function LineupView({
         {sides.map(
           ({ side, color, label: sideLabel, slideFrom, teams: sideTeams }) => (
             <div key={side} className="flex flex-col gap-4">
-              <motion.h2
-                className="text-center text-2xl font-bold tracking-widest uppercase"
-                style={{ color }}
+              <motion.div
+                className="flex flex-col items-center gap-1"
                 initial={{ opacity: 0, y: -14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
               >
-                {sideLabel}
-              </motion.h2>
+                {allianceNumbers?.[side] != null && (
+                  <span
+                    className="px-3 py-0.5 text-2xl font-black tracking-wider text-white uppercase tabular-nums"
+                    style={{ backgroundColor: color }}
+                  >
+                    Alliance {allianceNumbers[side]}
+                  </span>
+                )}
+                <h2
+                  className="text-center text-2xl font-bold tracking-widest uppercase"
+                  style={{ color }}
+                >
+                  {sideLabel}
+                </h2>
+              </motion.div>
               {sideTeams.map((team, i) => (
                 <motion.div
                   key={i}
@@ -942,6 +1001,7 @@ function RankingsView({
     rank: number
     number: number
     name: string
+    rankingPoints: number
     rp: number
     matchesPlayed: number
     wins: number
@@ -969,6 +1029,7 @@ function RankingsView({
           <tr>
             <th className="px-4 py-1 text-left">#</th>
             <th className="px-4 py-1 text-left">Team</th>
+            <th className="px-4 py-1 text-right">Ranking pts</th>
             <th className="px-4 py-1 text-right">Avg RP</th>
             <th className="px-4 py-1 text-right">W-L-T</th>
           </tr>
@@ -991,6 +1052,9 @@ function RankingsView({
               <td className="px-4 py-1">
                 <span className="font-bold tabular-nums">{row.number}</span>{" "}
                 {row.name}
+              </td>
+              <td className="px-4 py-1 text-right font-bold tabular-nums">
+                {row.rankingPoints}
               </td>
               <td className="px-4 py-1 text-right tabular-nums">
                 {row.matchesPlayed > 0

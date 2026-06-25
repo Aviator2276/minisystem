@@ -283,3 +283,34 @@ export function bracketTemplate(allianceCount: number): TemplateMatch[] {
   }
   return template
 }
+
+/**
+ * Expand the single grand final ("F") into a best-of-3 series (F1/F2/F3)
+ * between the same two finalists. Game 2 swaps the alliance colors to even out
+ * any field advantage; the champion is the first finalist to win two games.
+ * Each game gets its own round so the bracket lays them out left-to-right in a
+ * row, exactly like the single final with games 2 and 3 trailing to the right.
+ */
+export function expandFinalsBestOf3(
+  template: TemplateMatch[]
+): TemplateMatch[] {
+  const finalIndex = template.findIndex((m) => m.slot === "F")
+  if (finalIndex === -1) return template
+  const final = template[finalIndex]
+  const series: TemplateMatch[] = [
+    { ...final, slot: "F1" },
+    {
+      ...final,
+      slot: "F2",
+      round: final.round + 1,
+      red: final.blue,
+      blue: final.red,
+    },
+    { ...final, slot: "F3", round: final.round + 2 },
+  ]
+  return [
+    ...template.slice(0, finalIndex),
+    ...series,
+    ...template.slice(finalIndex + 1),
+  ]
+}

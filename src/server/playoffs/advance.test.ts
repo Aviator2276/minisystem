@@ -224,6 +224,88 @@ describe("bracket generation + advancement", () => {
     ).toBeNull()
   })
 
+  it("best-of-3 finals: generates F1/F2/F3, swaps game 2 sides, needs 2 wins", () => {
+    setupAlliances(4)
+    db.update(tables.events)
+      .set({ settings: { finalsBestOf3: true } })
+      .where(eq(tables.events.id, eventId))
+      .run()
+    const matches = generateBracket(db, eventId)
+    const finals = matches.filter((m) => (m.bracketSlot ?? "").startsWith("F"))
+    expect(finals.map((m) => m.bracketSlot)).toEqual(["F1", "F2", "F3"])
+
+    // game 2 swaps the alliance colors relative to games 1 and 3
+    const [f1, f2, f3] = finals
+    expect(f2.redSource).toBe(f1.blueSource)
+    expect(f2.blueSource).toBe(f1.redSource)
+    expect(f3.redSource).toBe(f1.redSource)
+    expect(f3.blueSource).toBe(f1.blueSource)
+
+    // the bracket view places the three games in consecutive "final" rounds so
+    // they lay out in a left-to-right row (not stacked in one column)
+    const view = getBracket(db, eventId)
+    const finalViews = ["F1", "F2", "F3"].map(
+      (slot) => view.matches.find((m) => m.bracketSlot === slot)!
+    )
+    expect(finalViews.every((m) => m.bracket === "final")).toBe(true)
+    const finalRounds = finalViews.map((m) => m.round)
+    expect(finalRounds[1]).toBe(finalRounds[0] + 1)
+    expect(finalRounds[2]).toBe(finalRounds[0] + 2)
+
+    // higher seed sweeps; champion (alliance 1) needs the 2-win majority
+    playItOut()
+    const bracket = getBracket(db, eventId)
+    expect(bracket.champion?.number).toBe(1)
+  })
+
+  it("best-of-3 finals: a 2-0 lead crowns the champion before game 3", () => {
+    setupAlliances(4)
+    db.update(tables.events)
+      .set({ settings: { finalsBestOf3: true } })
+      .where(eq(tables.events.id, eventId))
+      .run()
+    generateBracket(db, eventId)
+
+    // play out everything up to (but not including) the finals
+    const isFinal = (slot: string | null) => (slot ?? "").startsWith("F")
+    for (let guard = 0; guard < 32; guard++) {
+      const next = playoffMatches(db, eventId).find(
+        (m) =>
+          m.status !== "posted" &&
+          m.redAllianceId &&
+          m.blueAllianceId &&
+          !isFinal(m.bracketSlot)
+      )
+      if (!next) break
+      const view = getBracket(db, eventId).matches.find(
+        (m) => m.id === next.id
+      )!
+      decide(
+        next.id,
+        view.redAllianceNumber! <= view.blueAllianceNumber! ? "red" : "blue"
+      )
+    }
+
+    // win games 1 and 2 for the same finalist; never play game 3
+    const f1 = getBracket(db, eventId).matches.find(
+      (m) => m.bracketSlot === "F1"
+    )!
+    const target = Math.min(f1.redAllianceNumber!, f1.blueAllianceNumber!)
+    for (const slot of ["F1", "F2"]) {
+      const fv = getBracket(db, eventId).matches.find(
+        (m) => m.bracketSlot === slot
+      )!
+      decide(fv.id, fv.redAllianceNumber === target ? "red" : "blue")
+    }
+
+    const bracket = getBracket(db, eventId)
+    expect(bracket.champion?.number).toBe(target)
+    // the series is already decided, so game 3 was never played
+    expect(bracket.matches.find((m) => m.bracketSlot === "F3")!.status).toBe(
+      "scheduled"
+    )
+  })
+
   it("rejects playoff ties at post time", () => {
     setupAlliances(2)
     generateBracket(db, eventId)

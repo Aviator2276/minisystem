@@ -26,16 +26,12 @@ export const deleteEvent = createServerFn({ method: "POST" })
 
 export const createEvent = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .validator(
-    z.object({ name: z.string().min(1), slug: z.string().optional() })
-  )
+  .validator(z.object({ name: z.string().min(1), slug: z.string().optional() }))
   .handler(({ data }) => events.createEvent(db, data))
 
 export const duplicateEvent = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .validator(
-    z.object({ sourceEventId: z.string(), name: z.string().min(1) })
-  )
+  .validator(z.object({ sourceEventId: z.string(), name: z.string().min(1) }))
   .handler(({ data }) =>
     events.duplicateEvent(db, data.sourceEventId, data.name)
   )
@@ -47,9 +43,7 @@ export const listEventTeams = createServerFn()
 
 export const attachTeams = createServerFn({ method: "POST" })
   .middleware([requireAdmin])
-  .validator(
-    z.object({ eventId: z.string(), teamIds: z.array(z.string()) })
-  )
+  .validator(z.object({ eventId: z.string(), teamIds: z.array(z.string()) }))
   .handler(({ data }) => events.attachTeams(db, data.eventId, data.teamIds))
 
 export const detachTeam = createServerFn({ method: "POST" })

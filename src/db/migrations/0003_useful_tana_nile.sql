@@ -1,0 +1,1 @@
+ALTER TABLE `event_teams` ADD `ranking_points` integer DEFAULT 0 NOT NULL;

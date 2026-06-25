@@ -113,12 +113,47 @@ export function listEventTeams(db: Db, eventId: string) {
       number: tables.teams.number,
       name: tables.teams.name,
       selectionStatus: tables.eventTeams.selectionStatus,
+      rankingPoints: tables.eventTeams.rankingPoints,
     })
     .from(tables.eventTeams)
     .innerJoin(tables.teams, eq(tables.eventTeams.teamId, tables.teams.id))
     .where(eq(tables.eventTeams.eventId, eventId))
     .orderBy(asc(tables.teams.number))
     .all()
+}
+
+/**
+ * Nudge a team's manual ranking points by `delta` (admin +1/-1), clamped at 0.
+ * Returns the new value.
+ */
+export function adjustRankingPoints(
+  db: Db,
+  eventId: string,
+  teamId: string,
+  delta: number
+) {
+  const row = db
+    .select({ rankingPoints: tables.eventTeams.rankingPoints })
+    .from(tables.eventTeams)
+    .where(
+      and(
+        eq(tables.eventTeams.eventId, eventId),
+        eq(tables.eventTeams.teamId, teamId)
+      )
+    )
+    .get()
+  if (!row) throw new Error("Team is not on this event roster")
+  const next = Math.max(0, row.rankingPoints + delta)
+  db.update(tables.eventTeams)
+    .set({ rankingPoints: next })
+    .where(
+      and(
+        eq(tables.eventTeams.eventId, eventId),
+        eq(tables.eventTeams.teamId, teamId)
+      )
+    )
+    .run()
+  return next
 }
 
 export function attachTeams(db: Db, eventId: string, teamIds: string[]) {
@@ -184,6 +219,16 @@ export function setFlipAllianceSides(db: Db, eventId: string, flip: boolean) {
   return db
     .update(tables.events)
     .set({ settings: { ...event.settings, flipAllianceSides: flip } })
+    .where(eq(tables.events.id, eventId))
+    .returning()
+    .get()
+}
+
+export function setFinalsBestOf3(db: Db, eventId: string, value: boolean) {
+  const event = getEvent(db, eventId)
+  return db
+    .update(tables.events)
+    .set({ settings: { ...event.settings, finalsBestOf3: value } })
     .where(eq(tables.events.id, eventId))
     .returning()
     .get()

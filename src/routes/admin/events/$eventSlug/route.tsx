@@ -24,7 +24,7 @@ const TABS = [
   },
   {
     value: "rankings",
-    label: "Rankings",
+    label: "Teams",
     to: "/admin/events/$eventSlug/rankings",
   },
   {

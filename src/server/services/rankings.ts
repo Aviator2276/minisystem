@@ -11,6 +11,8 @@ export interface RankingRow extends RankingInput {
   number: number
   name: string
   rank: number
+  /** manual admin adjustment; primary ranking key (0 = no-op) */
+  rankingPoints: number
   wins: number
   losses: number
   ties: number
@@ -28,6 +30,7 @@ export function computeRankings(db: Db, eventId: string): RankingRow[] {
         number: t.number,
         name: t.name,
         rank: 0,
+        rankingPoints: t.rankingPoints,
         rp: 0,
         matchesPlayed: 0,
         autoPoints: 0,
@@ -89,7 +92,12 @@ export function computeRankings(db: Db, eventId: string): RankingRow[] {
     }
   }
 
-  const sorted = [...rows.values()].sort(game.compareRankings)
+  // manual ranking points lead the order; the game's computed comparator (avg
+  // RP + tiebreakers) settles teams with equal ranking points, so an untouched
+  // event (all 0) ranks exactly as before
+  const sorted = [...rows.values()].sort(
+    (a, b) => b.rankingPoints - a.rankingPoints || game.compareRankings(a, b)
+  )
   sorted.forEach((row, i) => (row.rank = i + 1))
   return sorted
 }

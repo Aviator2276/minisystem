@@ -3,7 +3,7 @@ import { tables } from "@/db"
 import type { Db } from "@/db"
 import { getEventInStatus } from "@/server/services/events"
 import { MAX_PLAYOFF_ALLIANCES } from "@/server/selection/state-machine"
-import { bracketTemplate } from "./templates"
+import { bracketTemplate, expandFinalsBestOf3 } from "./templates"
 
 type MatchRow = typeof tables.matches.$inferSelect
 type AllianceRow = typeof tables.alliances.$inferSelect
@@ -14,7 +14,7 @@ type AllianceRow = typeof tables.alliances.$inferSelect
  * feeder matches post. Regeneration is allowed until a playoff match posts.
  */
 export function generateBracket(db: Db, eventId: string) {
-  getEventInStatus(db, eventId, ["playoffs"])
+  const event = getEventInStatus(db, eventId, ["playoffs"])
   const alliances = db
     .select()
     .from(tables.alliances)
@@ -32,7 +32,10 @@ export function generateBracket(db: Db, eventId: string) {
 
   // only the top 8 seeds make the bracket; any surplus alliances sit out
   const seededCount = Math.min(alliances.length, MAX_PLAYOFF_ALLIANCES)
-  const template = bracketTemplate(seededCount)
+  const baseTemplate = bracketTemplate(seededCount)
+  const template = event.settings.finalsBestOf3
+    ? expandFinalsBestOf3(baseTemplate)
+    : baseTemplate
   const maxOrder = db
     .select({ value: tables.matches.scheduledOrder })
     .from(tables.matches)
@@ -174,30 +177,51 @@ export function getBracket(db: Db, eventId: string): BracketView {
   const seededCount = Math.min(alliances.length, MAX_PLAYOFF_ALLIANCES)
   const template = seededCount >= 2 ? bracketTemplate(seededCount) : []
   const meta = new Map(template.map((m) => [m.slot, m]))
+  // the base template only has a single "F" slot; a best-of-3 series (F1/F2/F3)
+  // isn't in it, so place each finals game in its own round to the right of the
+  // bracket's last round, keeping them in a left-to-right row in the final lane
+  const finalRound = template.find((m) => m.slot === "F")?.round ?? 1
+  function slotMeta(slot: string): { bracket: string; round: number } {
+    const direct = meta.get(slot)
+    if (direct) return { bracket: direct.bracket, round: direct.round }
+    const fm = /^F([123])$/.exec(slot)
+    if (fm) return { bracket: "final", round: finalRound + Number(fm[1]) - 1 }
+    return { bracket: "upper", round: 1 }
+  }
 
-  const final = matches.find((m) => m.bracketSlot === "F")
-  const championId =
-    final?.status === "posted" && final.winner && final.winner !== "tie"
-      ? final.winner === "red"
-        ? final.redAllianceId
-        : final.blueAllianceId
-      : null
+  // the champion is decided by the finals: a single "F" match, or a best-of-3
+  // series (F1/F2/F3) where the first alliance to win the majority of games wins
+  const finals = matches.filter((m) => /^F[123]?$/.test(m.bracketSlot ?? ""))
+  const winsNeeded = Math.floor(finals.length / 2) + 1
+  const winCounts = new Map<string, number>()
+  for (const f of finals) {
+    if (f.status !== "posted" || !f.winner || f.winner === "tie") continue
+    const id = f.winner === "red" ? f.redAllianceId : f.blueAllianceId
+    if (id) winCounts.set(id, (winCounts.get(id) ?? 0) + 1)
+  }
+  let championId: string | null = null
+  for (const [id, wins] of winCounts) {
+    if (wins >= winsNeeded) championId = id
+  }
 
   return {
     allianceCount: alliances.length,
     champion: championId
       ? { allianceId: championId, number: numberOf.get(championId) ?? 0 }
       : null,
-    matches: matches.map((m) => ({
-      ...m,
-      redAllianceNumber: m.redAllianceId
-        ? (numberOf.get(m.redAllianceId) ?? null)
-        : null,
-      blueAllianceNumber: m.blueAllianceId
-        ? (numberOf.get(m.blueAllianceId) ?? null)
-        : null,
-      bracket: meta.get(m.bracketSlot ?? "")?.bracket ?? "upper",
-      round: meta.get(m.bracketSlot ?? "")?.round ?? 1,
-    })),
+    matches: matches.map((m) => {
+      const sm = slotMeta(m.bracketSlot ?? "")
+      return {
+        ...m,
+        redAllianceNumber: m.redAllianceId
+          ? (numberOf.get(m.redAllianceId) ?? null)
+          : null,
+        blueAllianceNumber: m.blueAllianceId
+          ? (numberOf.get(m.blueAllianceId) ?? null)
+          : null,
+        bracket: sm.bracket,
+        round: sm.round,
+      }
+    }),
   }
 }

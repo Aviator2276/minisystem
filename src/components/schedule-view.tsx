@@ -8,6 +8,7 @@ export interface ScheduleMatch {
   id: string
   type: string
   number: number
+  bracketSlot?: string | null
   scheduledOrder: number
   status: string
   red1: string | null
@@ -57,10 +58,9 @@ export function ScheduleView({
   const window = queue.slice(start, start + 5)
 
   const nextMatchId =
-    (currentIndex >= 0
-      ? queue.slice(currentIndex + 1)
-      : queue
-    ).find((m) => m.status === "scheduled")?.id ?? null
+    (currentIndex >= 0 ? queue.slice(currentIndex + 1) : queue).find(
+      (m) => m.status === "scheduled"
+    )?.id ?? null
 
   if (window.length === 0) {
     return (
@@ -130,7 +130,7 @@ function ScheduleRow({
         dark ? "border-white/15 bg-white/5" : "bg-card",
         // mirror the bracket: current pulses green, next is steady yellow
         highlight === "current" && "animate-bracket-pulse",
-        highlight === "next" && "ring-2 ring-inset ring-yellow-500",
+        highlight === "next" && "ring-2 ring-yellow-500 ring-inset",
         // a played reference match recedes slightly
         !highlight && posted && "opacity-55",
         // reserve room above for the notch so it never overlaps the row above
@@ -176,7 +176,9 @@ function ScheduleRow({
         {posted ? (
           <span>
             {order
-              .map((s) => (s === "red" ? match.redPoints : match.bluePoints) ?? 0)
+              .map(
+                (s) => (s === "red" ? match.redPoints : match.bluePoints) ?? 0
+              )
               .join("–")}
           </span>
         ) : match.status === "running" ? (

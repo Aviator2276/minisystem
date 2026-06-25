@@ -66,6 +66,8 @@ export interface EventSettings {
   qualRoundsPerTeam?: number
   /** show blue on the left/top instead of red, everywhere alliances are laid out */
   flipAllianceSides?: boolean
+  /** play the grand final as a best-of-3 series (slots F1/F2/F3) instead of one match */
+  finalsBestOf3?: boolean
 }
 
 export const events = sqliteTable("events", {
@@ -105,6 +107,9 @@ export const eventTeams = sqliteTable(
       .$type<SelectionStatus>()
       .notNull()
       .default("available"),
+    // manual ranking-points adjustment (admin +1/-1); folded into the ranking
+    // sort ahead of the computed tiebreakers, so 0 (the default) is a no-op
+    rankingPoints: integer("ranking_points").notNull().default(0),
   },
   (t) => [uniqueIndex("event_teams_event_team_unique").on(t.eventId, t.teamId)]
 )
