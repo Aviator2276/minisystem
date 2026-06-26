@@ -1090,5 +1090,5 @@ function MatchStatusBadge({
       </Badge>
     )
   }
-  return <Badge variant="outline">Upcoming</Badge>
+  return <Badge variant="outline">On Deck</Badge>
 }

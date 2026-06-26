@@ -146,7 +146,7 @@ function ScheduleRow({
               : "bg-yellow-500 text-black"
           )}
         >
-          {highlight === "current" ? "Current" : "Upcoming"}
+          {highlight === "current" ? "On Field" : "On Deck"}
         </span>
       )}
 
