@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm"
 import { z } from "zod"
 import { db, tables } from "@/db"
 import { getMatchEngine } from "@/server/engine/instance"
+import { getViewRotator } from "@/server/display/instance"
 import { requireAdmin } from "@/server/auth/middleware"
 import { publicRateLimit } from "@/server/rate-limit/middleware"
 import { computeCardStates } from "@/server/services/cards"
@@ -36,6 +37,8 @@ export const setDisplayView = createServerFn({ method: "POST" })
       .where(eq(tables.events.id, data.eventId))
       .run()
     publish(data.eventId, "all", { type: "view_change", view: data.view })
+    // a manual pick pauses auto-rotation for the override window, then resumes
+    getViewRotator().manualOverride(data.eventId)
     return data.view
   })
 
@@ -49,6 +52,9 @@ export const getDisplayBootstrap = createServerFn()
   .validator(z.object({ slug: z.string() }))
   .handler(({ data }) => {
     const event = events.getEventBySlug(db, data.slug)
+    // (re)start auto-rotation when a display connects — also recovers it after a
+    // server restart, since the timer lives only in memory
+    getViewRotator().sync(event.id)
     const roster = events.listEventTeams(db, event.id)
     const allParticipants = db.select().from(tables.participants).all()
     const cardStates = computeCardStates(db, event.id)
@@ -61,6 +67,9 @@ export const getDisplayBootstrap = createServerFn()
         status: event.status,
         displayView: event.displayView as DisplayView,
         flipAllianceSides: event.settings.flipAllianceSides ?? false,
+        hideAfterMatchEnd: event.settings.hideAfterMatchEnd ?? false,
+        autoRotateViews: event.settings.autoRotateViews ?? false,
+        alwaysShowLineup: event.settings.alwaysShowLineup ?? false,
       },
       field: getMatchEngine().getFieldState(event.id),
       matches: matches.listMatches(db, event.id),

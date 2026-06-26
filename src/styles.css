@@ -136,6 +136,9 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Firefox thin scrollbar using theme tokens */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
     }
   body {
     @apply bg-background text-foreground;
@@ -145,5 +148,24 @@
     }
   html {
     @apply font-mono;
+    scrollbar-gutter: stable;
     }
+}
+
+/* WebKit/Blink scrollbar (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }

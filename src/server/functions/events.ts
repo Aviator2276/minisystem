@@ -1,9 +1,23 @@
 import { createServerFn } from "@tanstack/react-start"
 import { z } from "zod"
 import { db } from "@/db"
+import type { EventSettings } from "@/db/schema"
+import { getViewRotator } from "@/server/display/instance"
 import { requireAdmin, requireUser } from "@/server/auth/middleware"
 import { publish } from "@/server/realtime/publish"
 import * as events from "@/server/services/events"
+
+/** the `settings_update` realtime payload carrying every display-relevant flag */
+function settingsUpdate(settings: EventSettings) {
+  return {
+    type: "settings_update" as const,
+    flipAllianceSides: settings.flipAllianceSides ?? false,
+    finalsBestOf3: settings.finalsBestOf3 ?? false,
+    hideAfterMatchEnd: settings.hideAfterMatchEnd ?? false,
+    autoRotateViews: settings.autoRotateViews ?? false,
+    alwaysShowLineup: settings.alwaysShowLineup ?? false,
+  }
+}
 
 export const listEvents = createServerFn()
   .middleware([requireUser])
@@ -63,11 +77,33 @@ export const setFlipAllianceSides = createServerFn({ method: "POST" })
   .validator(z.object({ eventId: z.string(), flip: z.boolean() }))
   .handler(({ data }) => {
     const event = events.setFlipAllianceSides(db, data.eventId, data.flip)
-    publish(data.eventId, "all", {
-      type: "settings_update",
-      flipAllianceSides: data.flip,
-    })
+    publish(data.eventId, "all", settingsUpdate(event.settings))
     return event.settings.flipAllianceSides ?? false
+  })
+
+/** Toggle one of the audience-display automation settings. */
+export const setDisplaySetting = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .validator(
+    z.object({
+      eventId: z.string(),
+      key: z.enum(["hideAfterMatchEnd", "autoRotateViews", "alwaysShowLineup"]),
+      value: z.boolean(),
+    })
+  )
+  .handler(({ data }) => {
+    const event = events.setDisplayBehavior(
+      db,
+      data.eventId,
+      data.key,
+      data.value
+    )
+    publish(data.eventId, "all", settingsUpdate(event.settings))
+    // start/stop the rotation timer to match the new setting; toggling
+    // auto-rotate is explicit, so clear any lingering post-match hold too
+    if (data.key === "autoRotateViews") getViewRotator().release(data.eventId)
+    else getViewRotator().sync(data.eventId)
+    return event.settings
   })
 
 export const advanceStatus = createServerFn({ method: "POST" })

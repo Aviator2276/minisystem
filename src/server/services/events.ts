@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm"
 import { tables } from "@/db"
 import type { Db } from "@/db"
-import type { EventStatus } from "@/db/schema"
+import type { EventSettings, EventStatus } from "@/db/schema"
 
 const STATUS_ORDER: EventStatus[] = [
   "setup",
@@ -220,6 +220,29 @@ export function setFlipAllianceSides(db: Db, eventId: string, flip: boolean) {
   return db
     .update(tables.events)
     .set({ settings: { ...event.settings, flipAllianceSides: flip } })
+    .where(eq(tables.events.id, eventId))
+    .returning()
+    .get()
+}
+
+/** keys of EventSettings that are display-automation booleans */
+export type DisplayBehaviorKey =
+  | "hideAfterMatchEnd"
+  | "autoRotateViews"
+  | "alwaysShowLineup"
+
+/** merge a single display-automation flag into the event's settings */
+export function setDisplayBehavior(
+  db: Db,
+  eventId: string,
+  key: DisplayBehaviorKey,
+  value: boolean
+) {
+  const event = getEvent(db, eventId)
+  const settings: EventSettings = { ...event.settings, [key]: value }
+  return db
+    .update(tables.events)
+    .set({ settings })
     .where(eq(tables.events.id, eventId))
     .returning()
     .get()

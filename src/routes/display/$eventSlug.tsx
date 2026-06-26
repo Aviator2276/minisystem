@@ -14,15 +14,27 @@ import { getGame } from "@/games"
 import type { StrongholdScore } from "@/games/stronghold"
 import { useRealtime } from "@/hooks/use-realtime"
 import { RANKINGS_PAGE_SIZE, useRotatingPage } from "@/hooks/use-rotating-page"
+import { cn } from "@/lib/utils"
 import type { DisplayView } from "@/server/functions/display"
 import { getDisplayBootstrap } from "@/server/functions/display"
 import { allianceOrder } from "@/shared/alliance"
 import type { Alliance } from "@/shared/alliance"
 import { matchLongLabel } from "@/shared/match-format"
+import { matchProgression } from "@/shared/playoff-progression"
+import type { MatchProgression } from "@/shared/playoff-progression"
 import { topicFor } from "@/shared/realtime-messages"
+import { ROTATE_SLIDE_MS } from "@/shared/view-rotation"
 import type { ServerMessage } from "@/shared/realtime-messages"
 import type { EnrichedSelectionState } from "@/server/services/selection"
-import { MonitorPlayIcon } from "lucide-react"
+import {
+  ArrowDownIcon,
+  ArrowRightIcon,
+  MonitorPlayIcon,
+  TriangleAlertIcon,
+  TrophyIcon,
+  XCircleIcon,
+} from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 
 export const Route = createFileRoute("/display/$eventSlug")({
   validateSearch: (search: Record<string, unknown>): { preview?: boolean } => {
@@ -47,6 +59,85 @@ interface BannerState {
 
 function allianceColor(side: "red" | "blue") {
   return side === "red" ? "var(--alliance-red)" : "var(--alliance-blue)"
+}
+
+/** height of the pinned lineup banner (px) — close to a view header's height */
+const BANNER_H = 88
+
+type AdvanceTone = "advance" | "drop" | "eliminated" | "champion"
+interface AdvanceInfo {
+  text: string
+  tone: AdvanceTone
+}
+
+/**
+ * Per-alliance post-match destination for the results screen: the winner's next
+ * match (or championship), the loser's drop into the lower bracket, or their
+ * elimination. Returns null outside decided playoff matches.
+ */
+function playoffAdvancement(
+  progression: MatchProgression | null,
+  winner: string | null,
+  bracketCurrent: {
+    redAllianceId: string | null
+    blueAllianceId: string | null
+  } | null,
+  champion: { allianceId: string } | null
+): Partial<Record<Alliance, AdvanceInfo>> | null {
+  if (!progression || !bracketCurrent) return null
+  if (winner !== "red" && winner !== "blue") return null
+  const loserSide: Alliance = winner === "red" ? "blue" : "red"
+  const winnerAllianceId =
+    winner === "red"
+      ? bracketCurrent.redAllianceId
+      : bracketCurrent.blueAllianceId
+  const isChampion =
+    !!champion && !!winnerAllianceId && champion.allianceId === winnerAllianceId
+
+  const out: Partial<Record<Alliance, AdvanceInfo>> = {}
+  if (isChampion) out[winner] = { text: "Champions!", tone: "champion" }
+  else if (progression.winner)
+    out[winner] = {
+      text: `Advances to: ${progression.winner.label}`,
+      tone: "advance",
+    }
+  if (progression.isElimination)
+    out[loserSide] = { text: "Eliminated", tone: "eliminated" }
+  else if (progression.loser)
+    out[loserSide] = {
+      text: `Drops to: ${progression.loser.label}`,
+      tone: "drop",
+    }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+const ADVANCE_STYLE: Record<AdvanceTone, { cls: string; Icon: LucideIcon }> = {
+  champion: {
+    cls: "bg-yellow-400 text-black border-yellow-400",
+    Icon: TrophyIcon,
+  },
+  advance: { cls: "border-emerald-400 text-emerald-300", Icon: ArrowRightIcon },
+  drop: { cls: "border-amber-400 text-amber-300", Icon: ArrowDownIcon },
+  eliminated: { cls: "border-red-500 text-red-300", Icon: XCircleIcon },
+}
+
+/** Animated post-match destination chip under an alliance on the results screen. */
+function AdvancementBadge({ info }: { info: AdvanceInfo }) {
+  const { cls, Icon } = ADVANCE_STYLE[info.tone]
+  return (
+    <motion.div
+      className={cn(
+        "mt-2 flex items-center justify-center gap-2 border px-4 py-1.5 text-base font-bold tracking-wide uppercase",
+        cls
+      )}
+      initial={{ opacity: 0, y: 14, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 0.85, type: "spring", stiffness: 280, damping: 18 }}
+    >
+      <Icon className="size-4" />
+      {info.text}
+    </motion.div>
+  )
 }
 
 function DisplayScreen() {
@@ -132,6 +223,22 @@ function DisplayScreen() {
       }
     : null
 
+  // playoff stakes: where each alliance goes after this match. Drives the
+  // lineup's elimination banner and the results screen's advancement footer.
+  const progression =
+    current?.type === "playoff"
+      ? matchProgression(boot.bracket.matches, bracketCurrent?.bracketSlot)
+      : null
+  const eliminationBanner = progression?.isElimination
+    ? { isFinal: progression.isFinal }
+    : null
+  const advancement = playoffAdvancement(
+    progression,
+    current?.winner ?? null,
+    bracketCurrent,
+    boot.bracket.champion
+  )
+
   // event-specific high score: the best single-alliance score from every OTHER
   // posted match. The shown results match sets a new record when its top
   // alliance beats it — that alliance gets the highlight + confetti.
@@ -161,6 +268,18 @@ function DisplayScreen() {
       blue: cachedSide(current?.blueScore),
     })
   }, [field.matchId])
+
+  // "Auto rotate views" is driven server-side: the rotator advances
+  // events.displayView and broadcasts view_change, which lands in `view` via the
+  // handler below — so the cycle, the control-panel highlight, and this screen
+  // all stay in sync. Here we only react to `view`.
+
+  // "Always show lineup": pin a lineup banner across the rankings/schedule/
+  // bracket views (only when a match is queued to read teams from)
+  const showLineupBanner =
+    boot.event.alwaysShowLineup &&
+    current !== null &&
+    (view === "rankings" || view === "schedule" || view === "bracket")
 
   useRealtime([topicFor(boot.event.id, "public")], (message) => {
     switch (message.type) {
@@ -305,6 +424,7 @@ function DisplayScreen() {
           <motion.div
             key={view}
             className="absolute inset-0"
+            style={{ paddingTop: showLineupBanner ? BANNER_H : undefined }}
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -18 }}
@@ -322,6 +442,7 @@ function DisplayScreen() {
                 recordSide={recordSide}
                 order={order}
                 allianceNumbers={allianceNumbers}
+                advancement={advancement}
               />
             )}
             {view === "lineup" && (
@@ -331,9 +452,17 @@ function DisplayScreen() {
                 teams={boot.teams}
                 order={order}
                 allianceNumbers={allianceNumbers}
+                eliminationBanner={eliminationBanner}
               />
             )}
-            {view === "rankings" && <RankingsView rankings={boot.rankings} />}
+            {view === "rankings" && (
+              <RankingsView
+                rankings={boot.rankings}
+                pageMs={
+                  boot.event.autoRotateViews ? ROTATE_SLIDE_MS : undefined
+                }
+              />
+            )}
             {view === "selection" && (
               <div className="@container/board flex h-full flex-col gap-6 overflow-y-auto p-10">
                 <h1 className="text-center text-4xl font-bold">
@@ -409,6 +538,18 @@ function DisplayScreen() {
               </motion.div>
             )}
           </motion.div>
+        </AnimatePresence>
+
+        {/* pinned lineup banner across rankings/schedule/bracket */}
+        <AnimatePresence>
+          {showLineupBanner && (
+            <LineupBanner
+              current={current}
+              teams={boot.teams}
+              order={order}
+              allianceNumbers={allianceNumbers}
+            />
+          )}
         </AnimatePresence>
 
         {/* winner-colored sweep on the way into results */}
@@ -563,6 +704,7 @@ function ResultsView({
   recordSide,
   order,
   allianceNumbers,
+  advancement,
 }: {
   label: string
   red: Totals
@@ -583,6 +725,7 @@ function ResultsView({
   recordSide: Alliance | null
   order: readonly [Alliance, Alliance]
   allianceNumbers: Record<Alliance, number | null> | null
+  advancement: Partial<Record<Alliance, AdvanceInfo>> | null
 }) {
   const decided = winner === "red" || winner === "blue"
   // stage 1: winner reveal with confetti; stage 2: full score breakdown
@@ -718,6 +861,7 @@ function ResultsView({
               {order.map((side, idx) => {
                 const isRecord = recordSide === side
                 const sideColor = `var(--alliance-${side})`
+                const sideAdvance = advancement?.[side]
                 return (
                   <Fragment key={side}>
                     {idx > 0 && (
@@ -795,6 +939,7 @@ function ResultsView({
                           </motion.div>
                         ))}
                       </div>
+                      {sideAdvance && <AdvancementBadge info={sideAdvance} />}
                     </motion.div>
                   </Fragment>
                 )
@@ -833,12 +978,57 @@ function ResultsView({
   )
 }
 
+/**
+ * Animated playoff stakes banner shown on the lineup screen: a pulsing warning
+ * that the losing alliance is eliminated (gold "grand final" styling when it's
+ * the championship match).
+ */
+function EliminationBanner({ isFinal }: { isFinal: boolean }) {
+  const Icon = isFinal ? TrophyIcon : TriangleAlertIcon
+  const tint = isFinal ? "#facc15" : "#ef4444"
+  return (
+    <motion.div
+      className="flex items-center gap-4 border-2 px-10 py-3 text-2xl font-black tracking-widest uppercase"
+      style={{
+        borderColor: tint,
+        color: isFinal ? "#facc15" : "#fca5a5",
+        background: `color-mix(in oklch, ${tint} 14%, transparent)`,
+      }}
+      initial={{ opacity: 0, scale: 0.5, y: -12 }}
+      animate={{
+        opacity: 1,
+        scale: 1,
+        y: 0,
+        boxShadow: [
+          `0 0 0px ${tint}00`,
+          `0 0 28px ${tint}88`,
+          `0 0 0px ${tint}00`,
+        ],
+      }}
+      transition={{
+        opacity: { duration: 0.3, delay: 0.15 },
+        scale: { type: "spring", stiffness: 260, damping: 16, delay: 0.15 },
+        boxShadow: { duration: 1.8, repeat: Infinity, ease: "easeInOut" },
+      }}
+    >
+      <motion.span
+        animate={{ scale: [1, 1.18, 1] }}
+        transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+      >
+        <Icon className="size-7" />
+      </motion.span>
+      {isFinal ? "Grand Finale" : "Elimination Match"}
+    </motion.div>
+  )
+}
+
 function LineupView({
   label,
   current,
   teams,
   order,
   allianceNumbers,
+  eliminationBanner,
 }: {
   label: string
   current: {
@@ -859,6 +1049,7 @@ function LineupView({
   }[]
   order: readonly [Alliance, Alliance]
   allianceNumbers: Record<Alliance, number | null> | null
+  eliminationBanner: { isFinal: boolean } | null
 }) {
   const byId = new Map(teams.map((t) => [t.teamId, t]))
   const lineup = (ids: (string | null)[]) =>
@@ -918,6 +1109,9 @@ function LineupView({
       >
         {label}
       </motion.h1>
+      {eliminationBanner && (
+        <EliminationBanner isFinal={eliminationBanner.isFinal} />
+      )}
       <div className="grid w-full max-w-6xl grid-cols-2 gap-8">
         {sides.map(
           ({ side, color, label: sideLabel, slideFrom, teams: sideTeams }) => (
@@ -993,8 +1187,117 @@ function LineupView({
   )
 }
 
+/**
+ * Pinned banner showing both alliances' lineups across the rankings/schedule/
+ * bracket views. Behaves like the safe-to-enter notch but spans a header-sized
+ * strip: the left alliance (per `order`, so flip-aware) sits left, the other
+ * right, each color-tinted with its team numbers animating in.
+ */
+function LineupBanner({
+  current,
+  teams,
+  order,
+  allianceNumbers,
+}: {
+  current: {
+    red1: string | null
+    red2: string | null
+    red3: string | null
+    red4: string | null
+    blue1: string | null
+    blue2: string | null
+    blue3: string | null
+    blue4: string | null
+  }
+  teams: { teamId: string; number: number }[]
+  order: readonly [Alliance, Alliance]
+  allianceNumbers: Record<Alliance, number | null> | null
+}) {
+  const numberOf = new Map(teams.map((t) => [t.teamId, t.number]))
+  const numbersFor = (side: Alliance) =>
+    (side === "red"
+      ? [current.red1, current.red2, current.red3, current.red4]
+      : [current.blue1, current.blue2, current.blue3, current.blue4]
+    ).flatMap((id) => {
+      const n = id ? numberOf.get(id) : undefined
+      return n === undefined ? [] : [n]
+    })
+
+  return (
+    <motion.div
+      className="pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-2"
+      style={{ height: BANNER_H }}
+      initial={{ y: "-110%" }}
+      animate={{ y: 0 }}
+      exit={{ y: "-110%" }}
+      transition={{ type: "spring", stiffness: 210, damping: 26 }}
+    >
+      {order.map((side, idx) => {
+        const color = allianceColor(side)
+        const numbers = numbersFor(side)
+        const allianceNumber = allianceNumbers?.[side] ?? null
+        const label = (
+          <span
+            className="text-2xl font-black tracking-widest uppercase"
+            style={{ color }}
+          >
+            {side}
+            {allianceNumber != null && (
+              <span className="ml-2 text-xl tabular-nums">
+                A{allianceNumber}
+              </span>
+            )}
+          </span>
+        )
+        const nums = (
+          <div className="flex items-center gap-5">
+            {numbers.map((n, i) => (
+              <motion.span
+                key={n}
+                className="text-4xl font-black tabular-nums"
+                style={{ color }}
+                initial={{ opacity: 0, y: -18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.18 + i * 0.08 }}
+              >
+                {n}
+              </motion.span>
+            ))}
+          </div>
+        )
+        return (
+          <div
+            key={side}
+            className={cn(
+              "flex h-full items-center gap-6 px-12",
+              idx === 0 ? "justify-start" : "justify-end"
+            )}
+            style={{
+              background: `linear-gradient(${idx === 0 ? "90deg" : "270deg"}, color-mix(in oklch, ${color} 32%, transparent), transparent)`,
+              boxShadow: `inset 0 4px 0 0 ${color}`,
+            }}
+          >
+            {idx === 0 ? (
+              <>
+                {label}
+                {nums}
+              </>
+            ) : (
+              <>
+                {nums}
+                {label}
+              </>
+            )}
+          </div>
+        )
+      })}
+    </motion.div>
+  )
+}
+
 function RankingsView({
   rankings,
+  pageMs,
 }: {
   rankings: {
     teamId: string
@@ -1008,10 +1311,12 @@ function RankingsView({
     losses: number
     ties: number
   }[]
+  pageMs?: number
 }) {
   const { page, pageCount, start, end } = useRotatingPage(
     rankings.length,
-    RANKINGS_PAGE_SIZE
+    RANKINGS_PAGE_SIZE,
+    pageMs
   )
   const visible = rankings.slice(start, end)
 

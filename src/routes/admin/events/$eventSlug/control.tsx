@@ -3,6 +3,8 @@ import {
   BanIcon,
   CalendarDaysIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CoffeeIcon,
   DoorOpenIcon,
   FlagIcon,
@@ -97,7 +99,11 @@ import {
   selectionUndo,
   setSelectionBackup,
 } from "@/server/functions/selection"
-import { listEventTeams, setFlipAllianceSides } from "@/server/functions/events"
+import {
+  listEventTeams,
+  setDisplaySetting,
+  setFlipAllianceSides,
+} from "@/server/functions/events"
 import type { EnrichedSelectionState } from "@/server/services/selection"
 import type { CachedAllianceScore } from "@/server/services/scoring"
 import { allianceOrder } from "@/shared/alliance"
@@ -195,6 +201,15 @@ function ControlPanel() {
   const [finalsBo3, setFinalsBo3] = useState(
     event.settings.finalsBestOf3 ?? false
   )
+  const [hideAfterMatch, setHideAfterMatch] = useState(
+    event.settings.hideAfterMatchEnd ?? false
+  )
+  const [autoRotate, setAutoRotate] = useState(
+    event.settings.autoRotateViews ?? false
+  )
+  const [alwaysLineup, setAlwaysLineup] = useState(
+    event.settings.alwaysShowLineup ?? false
+  )
   const [cards, setCards] = useState(loaded.cards)
   const order = allianceOrder(flipSides)
 
@@ -213,6 +228,14 @@ function ControlPanel() {
           .slice(currentQueueIndex + 1)
           .find((m) => m.status === "scheduled")?.id ?? null)
       : null
+  // prev/next step through the queue order regardless of status; when nothing is
+  // queued yet, "next" picks the first match so the buttons are always useful
+  const prevQueueId =
+    currentQueueIndex > 0 ? queueMatches[currentQueueIndex - 1].id : null
+  const nextQueueId =
+    currentQueueIndex >= 0
+      ? (queueMatches.at(currentQueueIndex + 1)?.id ?? null)
+      : (queueMatches.at(0)?.id ?? null)
   const [totals, setTotals] = useState<{ red: Totals; blue: Totals }>({
     red: (current?.redScore as CachedAllianceScore | null)?.totals ?? null,
     blue: (current?.blueScore as CachedAllianceScore | null)?.totals ?? null,
@@ -275,6 +298,15 @@ function ControlPanel() {
       if (message.finalsBestOf3 !== undefined) {
         setFinalsBo3(message.finalsBestOf3)
       }
+      if (message.hideAfterMatchEnd !== undefined) {
+        setHideAfterMatch(message.hideAfterMatchEnd)
+      }
+      if (message.autoRotateViews !== undefined) {
+        setAutoRotate(message.autoRotateViews)
+      }
+      if (message.alwaysShowLineup !== undefined) {
+        setAlwaysLineup(message.alwaysShowLineup)
+      }
     }
     if (message.type === "bracket_update") {
       void router.invalidate()
@@ -298,6 +330,23 @@ function ControlPanel() {
   const listCardsFn = useServerFn(listCards)
   const flipFn = useServerFn(setFlipAllianceSides)
   const finalsFn = useServerFn(setFinalsBestOf3)
+  const displaySettingFn = useServerFn(setDisplaySetting)
+
+  // optimistic toggle for the display-automation settings; settings_update
+  // confirms (or a thrown error rolls back via the local setter)
+  function toggleDisplaySetting(
+    key: "hideAfterMatchEnd" | "autoRotateViews" | "alwaysShowLineup",
+    set: (value: boolean) => void,
+    next: boolean
+  ) {
+    set(next)
+    void displaySettingFn({ data: { eventId, key, value: next } }).catch(
+      (error) => {
+        set(!next)
+        toast.error(error instanceof Error ? error.message : String(error))
+      }
+    )
+  }
 
   async function toggleFlip(next: boolean) {
     setFlipSides(next) // optimistic; the settings_update broadcast confirms it
@@ -394,6 +443,38 @@ function ControlPanel() {
                 ))}
               </SelectContent>
             </Select>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                disabled={field.running || prevQueueId === null}
+                onClick={() => {
+                  if (prevQueueId)
+                    run(() =>
+                      setMatchFn({ data: { eventId, matchId: prevQueueId } })
+                    )
+                }}
+              >
+                <ChevronLeftIcon className="size-4" />
+                Previous match
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                disabled={field.running || nextQueueId === null}
+                onClick={() => {
+                  if (nextQueueId)
+                    run(() =>
+                      setMatchFn({ data: { eventId, matchId: nextQueueId } })
+                    )
+                }}
+              >
+                Next match
+                <ChevronRightIcon className="size-4" />
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -465,7 +546,7 @@ function ControlPanel() {
               <span className="text-sm font-medium">Settings</span>
               <SettingSwitch
                 id="flip-alliance-sides"
-                label="Blue on left"
+                label="Flip alliances"
                 checked={flipSides}
                 onCheckedChange={(checked) => void toggleFlip(checked)}
               />
@@ -480,6 +561,42 @@ function ControlPanel() {
                 label="Finals best of 3"
                 checked={finalsBo3}
                 onCheckedChange={(checked) => void toggleFinals(checked)}
+              />
+              <SettingSwitch
+                id="hide-after-match-end"
+                label="Hide scores after match"
+                checked={hideAfterMatch}
+                onCheckedChange={(checked) =>
+                  toggleDisplaySetting(
+                    "hideAfterMatchEnd",
+                    setHideAfterMatch,
+                    checked
+                  )
+                }
+              />
+              <SettingSwitch
+                id="auto-rotate-views"
+                label="Auto rotate views"
+                checked={autoRotate}
+                onCheckedChange={(checked) =>
+                  toggleDisplaySetting(
+                    "autoRotateViews",
+                    setAutoRotate,
+                    checked
+                  )
+                }
+              />
+              <SettingSwitch
+                id="always-show-lineup"
+                label="Show lineup header"
+                checked={alwaysLineup}
+                onCheckedChange={(checked) =>
+                  toggleDisplaySetting(
+                    "alwaysShowLineup",
+                    setAlwaysLineup,
+                    checked
+                  )
+                }
               />
             </div>
           </CardContent>
@@ -585,8 +702,8 @@ function SettingSwitch({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1">
-      <Label htmlFor={id} className="text-sm font-medium text-foreground">
+    <div className="flex items-center justify-between gap-3 py-0">
+      <Label htmlFor={id} className="text-xs font-medium text-foreground">
         {label}
       </Label>
       <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />

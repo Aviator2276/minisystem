@@ -18,7 +18,7 @@ import { topicFor } from "@/shared/realtime-messages"
 
 const PANEL_MS = 10_000
 
-export const Route = createFileRoute("/public/$eventSlug/tv")({
+export const Route = createFileRoute("/comp/$eventSlug/tv")({
   loader: ({ params }) =>
     getDisplayBootstrap({ data: { slug: params.eventSlug } }),
   component: TvMode,
@@ -348,7 +348,7 @@ function TvUpNext({
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
         >
-          Last result: {label(lastPosted)} —{" "}
+          Last result: {label(lastPosted)} |{" "}
           {order
             .map((s) =>
               s === "red" ? lastPosted.redPoints : lastPosted.bluePoints

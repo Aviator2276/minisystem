@@ -359,7 +359,13 @@ function ObjectiveBadge({
   return (
     <motion.div
       animate={achieved ? { scale: [1, 1.12, 1] } : { scale: 1 }}
-      transition={{ type: "spring", stiffness: 360, damping: 16 }}
+      transition={
+        // a keyframed pulse ([1, 1.12, 1]) needs a duration tween — springs only
+        // support two keyframes
+        achieved
+          ? { duration: 0.45, ease: "easeOut", times: [0, 0.5, 1] }
+          : { type: "spring", stiffness: 360, damping: 16 }
+      }
       className={cn(
         "w-28 border px-2.5 py-1 text-sm font-bold tracking-wide uppercase transition-colors duration-300",
         achieved

@@ -20,9 +20,9 @@ import { Route as LoginAdminRouteImport } from './routes/login/admin'
 import { Route as JudgeEventSlugRouteImport } from './routes/judge/$eventSlug'
 import { Route as DisplayEventSlugRouteImport } from './routes/display/$eventSlug'
 import { Route as AdminTeamsRouteImport } from './routes/admin/teams'
-import { Route as PublicEventSlugIndexRouteImport } from './routes/public/$eventSlug/index'
+import { Route as CompEventSlugIndexRouteImport } from './routes/comp/$eventSlug/index'
 import { Route as AdminEventsIndexRouteImport } from './routes/admin/events/index'
-import { Route as PublicEventSlugTvRouteImport } from './routes/public/$eventSlug/tv'
+import { Route as CompEventSlugTvRouteImport } from './routes/comp/$eventSlug/tv'
 import { Route as AdminEventsEventSlugRouteRouteImport } from './routes/admin/events/$eventSlug/route'
 import { Route as AdminEventsEventSlugIndexRouteImport } from './routes/admin/events/$eventSlug/index'
 import { Route as AdminEventsEventSlugRankingsRouteImport } from './routes/admin/events/$eventSlug/rankings'
@@ -84,9 +84,9 @@ const AdminTeamsRoute = AdminTeamsRouteImport.update({
   path: '/teams',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const PublicEventSlugIndexRoute = PublicEventSlugIndexRouteImport.update({
-  id: '/public/$eventSlug/',
-  path: '/public/$eventSlug/',
+const CompEventSlugIndexRoute = CompEventSlugIndexRouteImport.update({
+  id: '/comp/$eventSlug/',
+  path: '/comp/$eventSlug/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminEventsIndexRoute = AdminEventsIndexRouteImport.update({
@@ -94,9 +94,9 @@ const AdminEventsIndexRoute = AdminEventsIndexRouteImport.update({
   path: '/events/',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const PublicEventSlugTvRoute = PublicEventSlugTvRouteImport.update({
-  id: '/public/$eventSlug/tv',
-  path: '/public/$eventSlug/tv',
+const CompEventSlugTvRoute = CompEventSlugTvRouteImport.update({
+  id: '/comp/$eventSlug/tv',
+  path: '/comp/$eventSlug/tv',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminEventsEventSlugRouteRoute =
@@ -143,9 +143,9 @@ export interface FileRoutesByFullPath {
   '/login/': typeof LoginIndexRoute
   '/team/': typeof TeamIndexRoute
   '/admin/events/$eventSlug': typeof AdminEventsEventSlugRouteRouteWithChildren
-  '/public/$eventSlug/tv': typeof PublicEventSlugTvRoute
+  '/comp/$eventSlug/tv': typeof CompEventSlugTvRoute
   '/admin/events/': typeof AdminEventsIndexRoute
-  '/public/$eventSlug/': typeof PublicEventSlugIndexRoute
+  '/comp/$eventSlug/': typeof CompEventSlugIndexRoute
   '/admin/events/$eventSlug/control': typeof AdminEventsEventSlugControlRoute
   '/admin/events/$eventSlug/matches': typeof AdminEventsEventSlugMatchesRoute
   '/admin/events/$eventSlug/rankings': typeof AdminEventsEventSlugRankingsRoute
@@ -161,9 +161,9 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/login': typeof LoginIndexRoute
   '/team': typeof TeamIndexRoute
-  '/public/$eventSlug/tv': typeof PublicEventSlugTvRoute
+  '/comp/$eventSlug/tv': typeof CompEventSlugTvRoute
   '/admin/events': typeof AdminEventsIndexRoute
-  '/public/$eventSlug': typeof PublicEventSlugIndexRoute
+  '/comp/$eventSlug': typeof CompEventSlugIndexRoute
   '/admin/events/$eventSlug/control': typeof AdminEventsEventSlugControlRoute
   '/admin/events/$eventSlug/matches': typeof AdminEventsEventSlugMatchesRoute
   '/admin/events/$eventSlug/rankings': typeof AdminEventsEventSlugRankingsRoute
@@ -183,9 +183,9 @@ export interface FileRoutesById {
   '/login/': typeof LoginIndexRoute
   '/team/': typeof TeamIndexRoute
   '/admin/events/$eventSlug': typeof AdminEventsEventSlugRouteRouteWithChildren
-  '/public/$eventSlug/tv': typeof PublicEventSlugTvRoute
+  '/comp/$eventSlug/tv': typeof CompEventSlugTvRoute
   '/admin/events/': typeof AdminEventsIndexRoute
-  '/public/$eventSlug/': typeof PublicEventSlugIndexRoute
+  '/comp/$eventSlug/': typeof CompEventSlugIndexRoute
   '/admin/events/$eventSlug/control': typeof AdminEventsEventSlugControlRoute
   '/admin/events/$eventSlug/matches': typeof AdminEventsEventSlugMatchesRoute
   '/admin/events/$eventSlug/rankings': typeof AdminEventsEventSlugRankingsRoute
@@ -206,9 +206,9 @@ export interface FileRouteTypes {
     | '/login/'
     | '/team/'
     | '/admin/events/$eventSlug'
-    | '/public/$eventSlug/tv'
+    | '/comp/$eventSlug/tv'
     | '/admin/events/'
-    | '/public/$eventSlug/'
+    | '/comp/$eventSlug/'
     | '/admin/events/$eventSlug/control'
     | '/admin/events/$eventSlug/matches'
     | '/admin/events/$eventSlug/rankings'
@@ -224,9 +224,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/login'
     | '/team'
-    | '/public/$eventSlug/tv'
+    | '/comp/$eventSlug/tv'
     | '/admin/events'
-    | '/public/$eventSlug'
+    | '/comp/$eventSlug'
     | '/admin/events/$eventSlug/control'
     | '/admin/events/$eventSlug/matches'
     | '/admin/events/$eventSlug/rankings'
@@ -245,9 +245,9 @@ export interface FileRouteTypes {
     | '/login/'
     | '/team/'
     | '/admin/events/$eventSlug'
-    | '/public/$eventSlug/tv'
+    | '/comp/$eventSlug/tv'
     | '/admin/events/'
-    | '/public/$eventSlug/'
+    | '/comp/$eventSlug/'
     | '/admin/events/$eventSlug/control'
     | '/admin/events/$eventSlug/matches'
     | '/admin/events/$eventSlug/rankings'
@@ -263,8 +263,8 @@ export interface RootRouteChildren {
   JudgeEventSlugRoute: typeof JudgeEventSlugRoute
   LoginAdminRoute: typeof LoginAdminRoute
   LoginIndexRoute: typeof LoginIndexRoute
-  PublicEventSlugTvRoute: typeof PublicEventSlugTvRoute
-  PublicEventSlugIndexRoute: typeof PublicEventSlugIndexRoute
+  CompEventSlugTvRoute: typeof CompEventSlugTvRoute
+  CompEventSlugIndexRoute: typeof CompEventSlugIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -346,11 +346,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTeamsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/public/$eventSlug/': {
-      id: '/public/$eventSlug/'
-      path: '/public/$eventSlug'
-      fullPath: '/public/$eventSlug/'
-      preLoaderRoute: typeof PublicEventSlugIndexRouteImport
+    '/comp/$eventSlug/': {
+      id: '/comp/$eventSlug/'
+      path: '/comp/$eventSlug'
+      fullPath: '/comp/$eventSlug/'
+      preLoaderRoute: typeof CompEventSlugIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/events/': {
@@ -360,11 +360,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminEventsIndexRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/public/$eventSlug/tv': {
-      id: '/public/$eventSlug/tv'
-      path: '/public/$eventSlug/tv'
-      fullPath: '/public/$eventSlug/tv'
-      preLoaderRoute: typeof PublicEventSlugTvRouteImport
+    '/comp/$eventSlug/tv': {
+      id: '/comp/$eventSlug/tv'
+      path: '/comp/$eventSlug/tv'
+      fullPath: '/comp/$eventSlug/tv'
+      preLoaderRoute: typeof CompEventSlugTvRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/events/$eventSlug': {
@@ -464,8 +464,8 @@ const rootRouteChildren: RootRouteChildren = {
   JudgeEventSlugRoute: JudgeEventSlugRoute,
   LoginAdminRoute: LoginAdminRoute,
   LoginIndexRoute: LoginIndexRoute,
-  PublicEventSlugTvRoute: PublicEventSlugTvRoute,
-  PublicEventSlugIndexRoute: PublicEventSlugIndexRoute,
+  CompEventSlugTvRoute: CompEventSlugTvRoute,
+  CompEventSlugIndexRoute: CompEventSlugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

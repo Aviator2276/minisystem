@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
-import { TvIcon } from "lucide-react"
+import { LogInIcon, TvIcon } from "lucide-react"
 import {
   Area,
   AreaChart,
@@ -45,13 +45,19 @@ import {
   getDisplayBootstrap,
   listPublicEvents,
 } from "@/server/functions/display"
+import { computeAdvancedStats } from "@/shared/advanced-stats"
+import type {
+  AllianceLine,
+  MatchLine,
+  TeamMetric,
+} from "@/shared/advanced-stats"
 import { allianceOrder } from "@/shared/alliance"
 import type { Alliance } from "@/shared/alliance"
 import { matchShortLabel } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ScoreTotals } from "@/shared/score-types"
 
-export const Route = createFileRoute("/public/$eventSlug/")({
+export const Route = createFileRoute("/comp/$eventSlug/")({
   loader: async ({ params }) => {
     const [boot, events] = await Promise.all([
       getDisplayBootstrap({ data: { slug: params.eventSlug } }),
@@ -119,7 +125,7 @@ function PublicEventPage() {
             const next = events.find((e) => e.id === id)
             if (next)
               void router.navigate({
-                to: "/public/$eventSlug",
+                to: "/comp/$eventSlug",
                 params: { eventSlug: next.slug },
               })
           }}
@@ -138,9 +144,15 @@ function PublicEventPage() {
         <Badge variant="secondary">{boot.event.status.replace("_", " ")}</Badge>
         <div className="ml-auto flex items-center gap-1">
           <Button asChild variant="outline" size="sm">
-            <Link to="/public/$eventSlug/tv" params={{ eventSlug }}>
+            <Link to="/comp/$eventSlug/tv" params={{ eventSlug }}>
               <TvIcon />
               TV mode
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/login">
+              <LogInIcon />
+              Login
             </Link>
           </Button>
           <ThemeToggle />
@@ -159,7 +171,11 @@ function PublicEventPage() {
           </TabsList>
 
           <TabsContent value="overview" className="flex flex-col gap-4 pt-2">
-            <OverviewTab matches={boot.matches} rankings={boot.rankings} />
+            <OverviewTab
+              matches={boot.matches}
+              rankings={boot.rankings}
+              teamById={teamById}
+            />
           </TabsContent>
 
           <TabsContent value="team" className="pt-2">
@@ -331,12 +347,20 @@ const TREND_COLORS = [
 function OverviewTab({
   matches,
   rankings,
+  teamById,
 }: {
   matches: PublicMatch[]
   rankings: Ranking[]
+  teamById: Map<string, PublicTeam>
 }) {
   const posted = useMemo(
     () => matches.filter((m) => m.status === "posted"),
+    [matches]
+  )
+
+  // per-team performance leaderboards from posted qualification matches
+  const advanced = useMemo(
+    () => computeAdvancedStats(toStatLines(matches)),
     [matches]
   )
 
@@ -511,8 +535,135 @@ function OverviewTab({
           )}
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Leaderboard
+          title="Top boulder scorers"
+          hint="Average boulders"
+          metrics={advanced.boulders}
+          teamById={teamById}
+          format={(v) => v.toFixed(1)}
+        />
+        <Leaderboard
+          title="Top auto robots"
+          hint="Average Autos"
+          metrics={advanced.auto}
+          teamById={teamById}
+          format={(v) => v.toFixed(1)}
+        />
+        <Leaderboard
+          title="Top defense crossers"
+          hint="Average crossings"
+          metrics={advanced.crossing}
+          teamById={teamById}
+          format={(v) => v.toFixed(1)}
+        />
+        <Leaderboard
+          title="Best defense"
+          hint="Based on score reductions"
+          metrics={advanced.defense}
+          teamById={teamById}
+          format={(v) => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1))}
+        />
+      </div>
     </>
   )
+}
+
+function Leaderboard({
+  title,
+  hint,
+  metrics,
+  teamById,
+  format,
+}: {
+  title: string
+  hint: string
+  metrics: TeamMetric[]
+  teamById: Map<string, PublicTeam>
+  format: (value: number) => string
+}) {
+  const top = metrics.slice(0, 5)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">
+          {title}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            {hint}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {top.length === 0 ? (
+          <Empty>Not enough match data yet.</Empty>
+        ) : (
+          <ol className="flex flex-col">
+            {top.map((m, i) => {
+              const team = teamById.get(m.teamId)
+              return (
+                <li
+                  key={m.teamId}
+                  className="flex items-center gap-2 border-b py-1.5 text-sm last:border-b-0"
+                >
+                  <span className="w-4 text-right font-bold text-muted-foreground tabular-nums">
+                    {i + 1}
+                  </span>
+                  <span className="font-mono font-bold tabular-nums">
+                    {team?.number ?? "?"}
+                  </span>
+                  <span className="flex-1 truncate text-muted-foreground">
+                    {team?.name ?? "Unknown"}
+                  </span>
+                  <span className="font-mono font-bold tabular-nums">
+                    {format(m.value)}
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Adapt posted qualification matches into the alliance lines the advanced-stats
+ * module consumes. Crossings come from the cached score state; points/auto/
+ * boulders from the cached totals.
+ */
+function toStatLines(matches: PublicMatch[]): MatchLine[] {
+  const lines: MatchLine[] = []
+  for (const m of matches) {
+    if (m.type !== "qualification" || m.status !== "posted") continue
+    const red = allianceLine([m.red1, m.red2, m.red3], m.redScore, m.redPoints)
+    const blue = allianceLine(
+      [m.blue1, m.blue2, m.blue3],
+      m.blueScore,
+      m.bluePoints
+    )
+    if (red.teams.length > 0 && blue.teams.length > 0) lines.push({ red, blue })
+  }
+  return lines
+}
+
+function allianceLine(
+  ids: (string | null)[],
+  score: PublicMatch["redScore"],
+  points: number | null
+): AllianceLine {
+  const totals = totalsOf(score)
+  const crossings = (
+    score as { state?: { crossings?: { auto: number; teleop: number } } } | null
+  )?.state?.crossings
+  return {
+    teams: ids.filter((id): id is string => id !== null),
+    total: points ?? totals?.total ?? 0,
+    auto: totals?.auto ?? 0,
+    boulders: totals?.boulders ?? 0,
+    crosses: (crossings?.auto ?? 0) + (crossings?.teleop ?? 0),
+  }
 }
 
 function StatTile({ label, value }: { label: string; value: number }) {

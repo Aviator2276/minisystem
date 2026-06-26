@@ -3,13 +3,13 @@ import { Button } from "@/components/ui/button"
 import { listPublicEvents } from "@/server/functions/display"
 
 export const Route = createFileRoute("/")({
-  // The public event page is the app's front door: send visitors straight to
+  // The competition page is the app's front door: send visitors straight to
   // the newest event. The page itself carries a dropdown to switch events.
   loader: async () => {
     const events = await listPublicEvents()
     if (events.length > 0) {
       throw redirect({
-        to: "/public/$eventSlug",
+        to: "/comp/$eventSlug",
         params: { eventSlug: events[0].slug },
       })
     }

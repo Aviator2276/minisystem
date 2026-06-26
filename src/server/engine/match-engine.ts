@@ -3,6 +3,7 @@ import { tables } from "@/db"
 import type { Db } from "@/db"
 import { getGame } from "@/games"
 import type { GameDefinition } from "@/games/types"
+import { getViewRotator } from "@/server/display/instance"
 import { getEvent } from "@/server/services/events"
 import { getMatch } from "@/server/services/matches"
 import { resetMatchScores } from "@/server/services/scoring"
@@ -83,6 +84,9 @@ export class MatchEngine {
     if (s.phase === "post_match" || s.phase === "fault") s.phase = "no_entry"
     s.phaseEndsAt = null
     this.broadcastState(eventId)
+    // queuing the next match releases any post-match camera hold so auto-rotation
+    // can resume for the upcoming match
+    getViewRotator().release(eventId)
     return this.getFieldState(eventId)
   }
 
@@ -315,6 +319,32 @@ export class MatchEngine {
     this.broadcastState(eventId)
     if (s.matchId) this.publishScore(eventId, s.matchId)
     this.publishFn(eventId, "all", { type: "sound", cue: "match-end" })
+
+    // "Hide after match end": 3s after the match ends, drop the audience screen
+    // to camera-only and keep it there until the next match is queued. The hold
+    // pins auto-rotation (so it can't pull the screen to a rotation view either
+    // before or after the switch); the camera switch fires unless the admin
+    // deliberately moved to results. The timer lives on s.timers, so queuing the
+    // next match (which clears them) cancels a still-pending switch.
+    const event = getEvent(this.db, eventId)
+    if (event.settings.hideAfterMatchEnd) {
+      getViewRotator().hold(eventId)
+      s.timers.push(
+        setTimeout(() => {
+          const view = getEvent(this.db, eventId).displayView
+          if (view === "results" || view === "camera") return
+          this.db
+            .update(tables.events)
+            .set({ displayView: "camera" })
+            .where(eq(tables.events.id, eventId))
+            .run()
+          this.publishFn(eventId, "all", {
+            type: "view_change",
+            view: "camera",
+          })
+        }, 3000)
+      )
+    }
   }
 
   private broadcastState(eventId: string): void {

@@ -68,6 +68,12 @@ export interface EventSettings {
   flipAllianceSides?: boolean
   /** play the grand final as a best-of-3 series (slots F1/F2/F3) instead of one match */
   finalsBestOf3?: boolean
+  /** auto-switch the audience display to camera-only 3s after a match ends */
+  hideAfterMatchEnd?: boolean
+  /** when a rotatable view is selected, cycle lineup/rankings/schedule (or bracket) on a timer */
+  autoRotateViews?: boolean
+  /** pin a lineup banner to the top of the rankings/schedule/bracket views */
+  alwaysShowLineup?: boolean
 }
 
 export const events = sqliteTable("events", {
