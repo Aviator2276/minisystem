@@ -329,7 +329,14 @@ function ManageRosterDialog({
                 size="sm"
                 variant="outline"
                 onClick={async () => {
-                  await attachFn({ data: { eventId, teamIds: [team.id] } })
+                  const result = await attachFn({
+                    data: { eventId, teamIds: [team.id] },
+                  })
+                  for (const skip of result.skipped) {
+                    toast.error(
+                      `Could not add ${skip.number} ${skip.name}: ${skip.reason}`
+                    )
+                  }
                   await router.invalidate()
                 }}
               >
@@ -356,10 +363,17 @@ function ManageRosterDialog({
             variant="secondary"
             disabled={importSource === ""}
             onClick={async () => {
-              const added = await importFn({
+              const result = await importFn({
                 data: { eventId, sourceEventId: importSource },
               })
-              toast.success(`Imported ${added} teams`)
+              toast.success(
+                `Imported ${result.attached} team${result.attached !== 1 ? "s" : ""}`
+              )
+              for (const skip of result.skipped) {
+                toast.error(
+                  `Skipped ${skip.number} ${skip.name}: ${skip.reason}`
+                )
+              }
               await router.invalidate()
             }}
           >
@@ -371,9 +385,14 @@ function ManageRosterDialog({
           <Button
             disabled={available.length === 0}
             onClick={async () => {
-              await attachFn({
+              const result = await attachFn({
                 data: { eventId, teamIds: available.map((t) => t.id) },
               })
+              for (const skip of result.skipped) {
+                toast.error(
+                  `Skipped ${skip.number} ${skip.name}: ${skip.reason}`
+                )
+              }
               await router.invalidate()
             }}
           >

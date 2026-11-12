@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react"
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
   GripVerticalIcon,
   Loader2Icon,
   PlusIcon,
+  RotateCcwIcon,
   Trash2Icon,
 } from "lucide-react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
@@ -76,23 +79,36 @@ import {
   regenerateQualSchedule,
   reorderMatches,
 } from "@/server/functions/matches"
+import { addExtraPlayoffMatch, extendFinals } from "@/server/functions/playoffs"
 import {
   listScoreEvents,
   postMatch,
   recordScoreEvent,
+  resetMatch,
   undoScoreEvent,
 } from "@/server/functions/scoring"
+import { getSelection } from "@/server/functions/selection"
 import { allianceOrder } from "@/shared/alliance"
 import type { Alliance } from "@/shared/alliance"
-import { matchShortLabel, sortMatchesByType } from "@/shared/match-format"
+import {
+  isExtraPlayoffMatch,
+  matchShortLabel,
+  sortMatchesByType,
+} from "@/shared/match-format"
+import { MANUAL_ADJUST_TYPE } from "@/shared/score-types"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export const Route = createFileRoute("/admin/events/$eventSlug/matches")({
   loader: async ({ context }) => {
-    const [matches, roster] = await Promise.all([
+    const [matches, roster, selection] = await Promise.all([
       listMatches({ data: { eventId: context.event.id } }),
       listEventTeams({ data: { eventId: context.event.id } }),
+      // alliance rosters for the add-playoff-match dialog
+      context.event.status === "playoffs"
+        ? getSelection({ data: { eventId: context.event.id } })
+        : Promise.resolve(null),
     ])
-    return { event: context.event, matches, roster }
+    return { event: context.event, matches, roster, selection }
   },
   component: MatchesPage,
 })
@@ -100,7 +116,7 @@ export const Route = createFileRoute("/admin/events/$eventSlug/matches")({
 type MatchRow = Awaited<ReturnType<typeof listMatches>>[number]
 
 function MatchesPage() {
-  const { event, matches, roster } = Route.useLoaderData()
+  const { event, matches, roster, selection } = Route.useLoaderData()
   const order = allianceOrder(event.settings.flipAllianceSides)
   const router = useRouter()
   const regenerateFn = useServerFn(regenerateQualSchedule)
@@ -111,11 +127,15 @@ function MatchesPage() {
   const [generating, setGenerating] = useState(false)
   const [pendingRounds, setPendingRounds] = useState<number | null>(null)
   const [customOpen, setCustomOpen] = useState(false)
+  const [playoffOpen, setPlayoffOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<MatchRow | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [bulkConfirm, setBulkConfirm] = useState(false)
 
   const canEdit = event.status === "setup" || event.status === "quals"
+  const inPlayoffs = event.status === "playoffs"
+  // playoffs still allow managing matches (extras, reorder, delete eligibles)
+  const canManage = canEdit || inPlayoffs
 
   // local copy drives drag order, sorted by type (practice → quals →
   // playoffs) then play order; resyncs whenever the loader refetches
@@ -148,10 +168,15 @@ function MatchesPage() {
   async function runBulkDelete() {
     setBulkConfirm(false)
     try {
-      await deleteManyFn({ data: { eventId: event.id, matchIds: selectedIds } })
+      const result = await deleteManyFn({
+        data: { eventId: event.id, matchIds: selectedIds },
+      })
       setSelected(new Set())
       toast.success(
-        `Deleted ${selectedIds.length} match${selectedIds.length === 1 ? "" : "es"}`
+        `Deleted ${result.deleted} match${result.deleted === 1 ? "" : "es"}` +
+          (result.skipped > 0
+            ? ` — skipped ${result.skipped} (posted or bracket matches)`
+            : "")
       )
       await router.invalidate()
     } catch (error) {
@@ -220,6 +245,25 @@ function MatchesPage() {
     }
   }
 
+  // up/down arrows: swap with the neighboring match within the same type group
+  async function moveMatch(match: MatchRow, direction: -1 | 1) {
+    const index = rows.indexOf(match)
+    const target = index + direction
+    if (target < 0 || target >= rows.length) return
+    if (rows[target].type !== match.type) return
+    const next = arrayMove(rows, index, index + direction)
+    setRows(next) // optimistic
+    try {
+      await reorderFn({
+        data: { eventId: event.id, orderedIds: next.map((m) => m.id) },
+      })
+      await router.invalidate()
+    } catch (error) {
+      toast.error(String(error))
+      setRows(matches)
+    }
+  }
+
   const numbers = new Map(roster.map((t) => [t.teamId, t.number]))
   const label = (teamId: string | null) =>
     teamId ? `${numbers.get(teamId) ?? "?"}` : "—"
@@ -278,7 +322,16 @@ function MatchesPage() {
         </div>
       )}
 
-      {canEdit && selectedIds.length > 0 && (
+      {inPlayoffs && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setPlayoffOpen(true)}>
+            <PlusIcon />
+            Add playoff match
+          </Button>
+        </div>
+      )}
+
+      {canManage && selectedIds.length > 0 && (
         <div className="flex items-center gap-2 border bg-muted/40 px-3 py-2">
           <span className="text-sm font-medium">
             {selectedIds.length} selected
@@ -303,6 +356,9 @@ function MatchesPage() {
       )}
 
       <DndContext
+        // stable id — the default global counter differs between the SSR pass
+        // and the client render, causing a DndDescribedBy hydration mismatch
+        id="matches-reorder"
         sensors={sensors}
         collisionDetection={closestCenter}
         modifiers={[restrictToVerticalAxis]}
@@ -311,8 +367,8 @@ function MatchesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              {canEdit && <TableHead className="w-8" />}
-              {canEdit && (
+              {canManage && <TableHead className="w-8" />}
+              {canManage && (
                 <TableHead className="w-8">
                   <Checkbox
                     aria-label="Select all matches"
@@ -348,14 +404,19 @@ function MatchesPage() {
               items={rows.map((m) => m.id)}
               strategy={verticalListSortingStrategy}
             >
-              {rows.map((match) => (
+              {rows.map((match, i) => (
                 <SortableMatchRow
                   key={match.id}
                   match={match}
-                  canEdit={canEdit}
+                  canManage={canManage}
                   order={order}
                   label={label}
                   selected={selected.has(match.id)}
+                  canMoveUp={i > 0 && rows[i - 1].type === match.type}
+                  canMoveDown={
+                    i < rows.length - 1 && rows[i + 1].type === match.type
+                  }
+                  onMove={moveMatch}
                   onToggle={toggle}
                   onScore={setScoring}
                   onDelete={setPendingDelete}
@@ -496,25 +557,44 @@ function MatchesPage() {
           await router.invalidate()
         }}
       />
+
+      {inPlayoffs && (
+        <AddPlayoffMatchDialog
+          open={playoffOpen}
+          onOpenChange={setPlayoffOpen}
+          eventId={event.id}
+          alliances={selection?.alliances ?? []}
+          onCreated={async () => {
+            setPlayoffOpen(false)
+            await router.invalidate()
+          }}
+        />
+      )}
     </div>
   )
 }
 
 function SortableMatchRow({
   match,
-  canEdit,
+  canManage,
   order,
   label,
   selected,
+  canMoveUp,
+  canMoveDown,
+  onMove,
   onToggle,
   onScore,
   onDelete,
 }: {
   match: MatchRow
-  canEdit: boolean
+  canManage: boolean
   order: readonly [Alliance, Alliance]
   label: (teamId: string | null) => string
   selected: boolean
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMove: (match: MatchRow, direction: -1 | 1) => Promise<void>
   onToggle: (id: string) => void
   onScore: (match: MatchRow) => void
   onDelete: (match: MatchRow) => void
@@ -541,7 +621,7 @@ function SortableMatchRow({
         zIndex: isDragging ? 1 : 0,
       }}
     >
-      {canEdit && (
+      {canManage && (
         <TableCell className="w-8">
           <button
             type="button"
@@ -554,7 +634,7 @@ function SortableMatchRow({
           </button>
         </TableCell>
       )}
-      {canEdit && (
+      {canManage && (
         <TableCell>
           <Checkbox
             aria-label={`Select ${matchShortLabel(match)}`}
@@ -572,6 +652,11 @@ function SortableMatchRow({
               practice
             </Badge>
           )}
+          {isExtraPlayoffMatch(match) && (
+            <Badge variant="secondary" className="text-[0.65rem]">
+              Extra
+            </Badge>
+          )}
         </span>
       </TableCell>
       {order.map((side) => {
@@ -581,8 +666,16 @@ function SortableMatchRow({
             : [match.blue1, match.blue2, match.blue3]
         const backup = side === "red" ? match.red4 : match.blue4
         return (
-          <TableCell key={side}>
-            {base.map(label).join(" · ")}
+          <TableCell key={side} className="tabular-nums">
+            {/* fixed-width right-aligned slots so team numbers line up */}
+            {base.map((id, i) => (
+              <span key={i}>
+                {i > 0 && <span className="text-muted-foreground"> · </span>}
+                <span className="inline-block min-w-[2.5ch] text-right">
+                  {label(id)}
+                </span>
+              </span>
+            ))}
             {backup && ` · ${label(backup)} (B)`}
             {side === "red" && match.surrogates.length > 0 && " *"}
           </TableCell>
@@ -602,10 +695,32 @@ function SortableMatchRow({
       </TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-1">
+          {canManage && (
+            <>
+              <Button
+                variant="ghost"
+                size="xs"
+                title="Move up"
+                disabled={!canMoveUp}
+                onClick={() => void onMove(match, -1)}
+              >
+                <ArrowUpIcon />
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                title="Move down"
+                disabled={!canMoveDown}
+                onClick={() => void onMove(match, 1)}
+              >
+                <ArrowDownIcon />
+              </Button>
+            </>
+          )}
           <Button variant="outline" size="xs" onClick={() => onScore(match)}>
             Score
           </Button>
-          {canEdit && (
+          {canManage && (
             <Button
               variant="ghost"
               size="xs"
@@ -770,6 +885,181 @@ function CustomMatchDialog({
   )
 }
 
+type SelectionAlliance = NonNullable<
+  Awaited<ReturnType<typeof getSelection>>
+>["alliances"][number]
+
+function allianceLabel(a: SelectionAlliance) {
+  const teams = [a.captain, ...a.picks, a.backup]
+    .filter((t): t is NonNullable<typeof t> => t !== null)
+    .map((t) => t.number)
+  return `Alliance ${a.number} — ${teams.join(" · ")}`
+}
+
+function AddPlayoffMatchDialog({
+  open,
+  onOpenChange,
+  eventId,
+  alliances,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  eventId: string
+  alliances: SelectionAlliance[]
+  onCreated: () => Promise<void>
+}) {
+  const extraFn = useServerFn(addExtraPlayoffMatch)
+  const extendFn = useServerFn(extendFinals)
+  const [redNumber, setRedNumber] = useState("")
+  const [blueNumber, setBlueNumber] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  function allianceSelect(
+    side: "red" | "blue",
+    value: string,
+    set: (v: string) => void
+  ) {
+    return (
+      <div className="flex flex-1 flex-col gap-1.5">
+        <Label
+          className="capitalize"
+          style={{ color: `var(--alliance-${side})` }}
+        >
+          {side} alliance
+        </Label>
+        <Select value={value || undefined} onValueChange={set}>
+          <SelectTrigger
+            className="w-full"
+            style={{ borderColor: `var(--alliance-${side})` }}
+          >
+            <SelectValue placeholder="Pick an alliance" />
+          </SelectTrigger>
+          <SelectContent>
+            {alliances.map((a) => (
+              <SelectItem key={a.number} value={String(a.number)}>
+                {allianceLabel(a)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add playoff match</DialogTitle>
+          <DialogDescription>
+            Extra matches sit outside the bracket; a finals game counts toward
+            the championship.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Tabs defaultValue="extra">
+          <TabsList className="w-full">
+            <TabsTrigger value="extra" className="flex-1">
+              Extra match
+            </TabsTrigger>
+            <TabsTrigger value="extend" className="flex-1">
+              Extend finals
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="extra" className="flex flex-col gap-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              An off-bracket match between any two alliances. It queues, scores,
+              and displays like any playoff match but never affects bracket
+              advancement or the champion.
+            </p>
+            <div className="flex gap-3">
+              {allianceSelect("red", redNumber, setRedNumber)}
+              {allianceSelect("blue", blueNumber, setBlueNumber)}
+            </div>
+            <DialogFooter>
+              <Button
+                disabled={
+                  saving ||
+                  !redNumber ||
+                  !blueNumber ||
+                  redNumber === blueNumber
+                }
+                onClick={async () => {
+                  setSaving(true)
+                  try {
+                    await extraFn({
+                      data: {
+                        eventId,
+                        redAllianceNumber: Number(redNumber),
+                        blueAllianceNumber: Number(blueNumber),
+                      },
+                    })
+                    toast.success("Extra playoff match added")
+                    setRedNumber("")
+                    setBlueNumber("")
+                    await onCreated()
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : String(error)
+                    )
+                  } finally {
+                    setSaving(false)
+                  }
+                }}
+              >
+                Add extra match
+              </Button>
+            </DialogFooter>
+          </TabsContent>
+
+          <TabsContent value="extend" className="flex flex-col gap-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Appends one more grand-final game between the same two finalists.
+              The champion needs a majority of all finals games, so{" "}
+              <span className="font-medium text-foreground">
+                adding a game to an already-decided series reopens the
+                championship
+              </span>
+              . Available once both finalists are decided.
+            </p>
+            <DialogFooter>
+              <Button
+                variant="destructive"
+                disabled={saving}
+                onClick={async () => {
+                  setSaving(true)
+                  try {
+                    await extendFn({ data: { eventId } })
+                    toast.success("Finals game added")
+                    await onCreated()
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : String(error)
+                    )
+                  } finally {
+                    setSaving(false)
+                  }
+                }}
+              >
+                Add finals game
+              </Button>
+            </DialogFooter>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const PHASE_SECTIONS = [
+  { id: "auto", title: "Autonomous" },
+  { id: "teleop", title: "Teleop" },
+  { id: "endgame", title: "Endgame" },
+  { id: "anytime", title: "Any time · penalties" },
+] as const
+
 function ScoreDialog({
   match,
   gameId,
@@ -787,8 +1077,14 @@ function ScoreDialog({
   const recordFn = useServerFn(recordScoreEvent)
   const undoFn = useServerFn(undoScoreEvent)
   const postFn = useServerFn(postMatch)
+  const resetFn = useServerFn(resetMatch)
   const [log, setLog] = useState<
-    Array<{ id: string; alliance: string; type: string }>
+    Array<{
+      id: string
+      alliance: string
+      type: string
+      payload: Record<string, unknown>
+    }>
   >([])
   const [points, setPoints] = useState<{
     red: number | null
@@ -797,15 +1093,64 @@ function ScoreDialog({
     red: match.redPoints,
     blue: match.bluePoints,
   })
+  const [manual, setManual] = useState<{ red: string; blue: string }>({
+    red: "",
+    blue: "",
+  })
+  const [resetConfirm, setResetConfirm] = useState(false)
+
+  const typeDefs = game.scoreEventTypes as Record<
+    string,
+    (typeof game.scoreEventTypes)[keyof typeof game.scoreEventTypes] | undefined
+  >
+
+  // which section a scoring action belongs to: its (first) phase, or the
+  // catch-all when it spans the whole match (fouls etc.)
+  function sectionOf(type: string): string {
+    const phases = typeDefs[type]?.phases ?? []
+    if (phases.length >= 3 || phases.length === 0) return "anytime"
+    return phases[0]
+  }
+
+  function describeEvent(type: string, payload: Record<string, unknown>) {
+    if (type === MANUAL_ADJUST_TYPE) {
+      const pts = Number((payload as { points?: number }).points ?? 0)
+      return `Manual adjustment ${pts >= 0 ? "+" : ""}${pts}`
+    }
+    const base = typeDefs[type]?.label ?? type
+    if (typeof payload.robotIndex === "number")
+      return `${base} · R${payload.robotIndex + 1}`
+    if (typeof payload.defenseIndex === "number")
+      return `${base} · D${payload.defenseIndex + 1}`
+    return base
+  }
 
   async function refresh() {
-    const events = await listScoreEvents({ data: { matchId: match.id } })
+    const [events, matches] = await Promise.all([
+      listScoreEvents({ data: { matchId: match.id } }),
+      listMatches({ data: { eventId: match.eventId } }),
+    ])
     setLog(
       events
         .filter((e) => !e.undone)
-        .map((e) => ({ id: e.id, alliance: e.alliance, type: e.type }))
+        .map((e) => ({
+          id: e.id,
+          alliance: e.alliance,
+          type: e.type,
+          payload: e.payload,
+        }))
     )
+    const updated = matches.find((m) => m.id === match.id)
+    setPoints({
+      red: updated?.redPoints ?? null,
+      blue: updated?.bluePoints ?? null,
+    })
   }
+
+  // load the existing log as soon as the dialog opens
+  useEffect(() => {
+    void refresh()
+  }, [])
 
   async function record(
     alliance: "red" | "blue",
@@ -814,21 +1159,27 @@ function ScoreDialog({
   ) {
     try {
       await recordFn({ data: { matchId: match.id, alliance, type, payload } })
-      const matches = await listMatches({ data: { eventId: match.eventId } })
-      const updated = matches.find((m) => m.id === match.id)
-      setPoints({
-        red: updated?.redPoints ?? null,
-        blue: updated?.bluePoints ?? null,
-      })
       await refresh()
     } catch (error) {
-      toast.error(String(error))
+      toast.error(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  async function setScoreTo(alliance: "red" | "blue") {
+    const target = Number(manual[alliance])
+    if (!Number.isFinite(target)) return
+    const delta = target - (points[alliance] ?? 0)
+    setManual((prev) => ({ ...prev, [alliance]: "" }))
+    if (delta === 0) return
+    await record(alliance, MANUAL_ADJUST_TYPE, { points: delta })
   }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
+      {/* sm:max-w-5xl: the base DialogContent sets sm:max-w-sm, which a plain
+          max-w-* can't override — without the sm: variant the box stays small
+          and the wide grid overflows it */}
+      <DialogContent className="sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>
             Score {matchShortLabel(match)} —{" "}
@@ -837,118 +1188,237 @@ function ScoreDialog({
             </span>
           </DialogTitle>
           <DialogDescription>
-            Manual score entry. Events recompute totals immediately.
+            Manual score entry, grouped by when each action happens in a match.
+            Totals recompute immediately.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-4">
-          {order.map((alliance) => (
-            <div key={alliance} className="flex flex-col gap-2">
-              <h3
-                className={`text-xs font-medium ${alliance === "red" ? "text-red-600" : "text-blue-600"}`}
-              >
-                {alliance.toUpperCase()} —{" "}
-                {(alliance === "red"
-                  ? [match.red1, match.red2, match.red3]
-                  : [match.blue1, match.blue2, match.blue3]
-                )
-                  .map(label)
-                  .join(" · ")}
-              </h3>
-              <div className="flex flex-wrap gap-1">
-                {Object.entries(game.scoreEventTypes).map(([type, def]) => {
-                  if (def.target === "robot") {
-                    return [0, 1, 2].map((robotIndex) => (
-                      <Button
-                        key={`${type}-${robotIndex}`}
-                        variant="outline"
-                        size="xs"
-                        onClick={() => record(alliance, type, { robotIndex })}
-                      >
-                        {def.label} R{robotIndex + 1}
-                      </Button>
-                    ))
-                  }
-                  if (def.target === "defense") {
-                    return [0, 1, 2, 3, 4].map((defenseIndex) => (
-                      <Button
-                        key={`${type}-${defenseIndex}`}
-                        variant="outline"
-                        size="xs"
-                        onClick={() => record(alliance, type, { defenseIndex })}
-                      >
-                        {def.label} D{defenseIndex + 1}
-                      </Button>
-                    ))
-                  }
+        <ScrollArea className="max-h-[70vh] pr-3">
+          {/* wide 3-column layout on desktop (red · blue · log) so the dialog
+              stays short; stacks vertically on small/mobile screens */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_16rem]">
+            {order.map((alliance) => (
+              <div key={alliance} className="flex flex-col gap-3">
+                <h3
+                  className="text-xs font-medium"
+                  style={{ color: `var(--alliance-${alliance})` }}
+                >
+                  {alliance.toUpperCase()} —{" "}
+                  {(alliance === "red"
+                    ? [match.red1, match.red2, match.red3]
+                    : [match.blue1, match.blue2, match.blue3]
+                  )
+                    .map(label)
+                    .join(" · ")}
+                </h3>
+
+                {PHASE_SECTIONS.map((section) => {
+                  const entries = Object.entries(game.scoreEventTypes).filter(
+                    ([type]) => sectionOf(type) === section.id
+                  )
+                  if (entries.length === 0) return null
                   return (
-                    <Button
-                      key={type}
-                      variant="outline"
-                      size="xs"
-                      onClick={() => record(alliance, type)}
-                    >
-                      {def.label}
-                    </Button>
+                    <div key={section.id} className="flex flex-col gap-1">
+                      <h4 className="text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase">
+                        {section.title}
+                      </h4>
+                      <div className="flex flex-wrap gap-1">
+                        {entries.map(([type, def]) => {
+                          if (def.target === "robot") {
+                            return [0, 1, 2].map((robotIndex) => (
+                              <Button
+                                key={`${type}-${robotIndex}`}
+                                variant="outline"
+                                size="xs"
+                                onClick={() =>
+                                  record(alliance, type, { robotIndex })
+                                }
+                              >
+                                {def.label} R{robotIndex + 1}
+                              </Button>
+                            ))
+                          }
+                          if (def.target === "defense") {
+                            return [0, 1, 2, 3, 4].map((defenseIndex) => (
+                              <Button
+                                key={`${type}-${defenseIndex}`}
+                                variant="outline"
+                                size="xs"
+                                onClick={() =>
+                                  record(alliance, type, { defenseIndex })
+                                }
+                              >
+                                {def.label} D{defenseIndex + 1}
+                              </Button>
+                            ))
+                          }
+                          return (
+                            <Button
+                              key={type}
+                              variant="outline"
+                              size="xs"
+                              onClick={() => record(alliance, type)}
+                            >
+                              {def.label}
+                            </Button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   )
                 })}
-              </div>
-            </div>
-          ))}
-        </div>
 
-        <div className="flex flex-col gap-2">
-          <h3 className="text-xs font-medium">Recorded events</h3>
-          <ScrollArea className="h-32">
-            <ul className="flex flex-col gap-1 text-xs">
-              {log.length === 0 && (
-                <li className="text-muted-foreground">
-                  None yet — record or refresh.
-                </li>
-              )}
-              {log.map((e) => (
-                <li key={e.id} className="flex items-center gap-2">
-                  <span className="font-mono">
-                    [{e.alliance}] {e.type}
-                  </span>
+                <div className="flex items-end gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label
+                      htmlFor={`set-score-${alliance}`}
+                      className="text-[0.65rem] tracking-wide text-muted-foreground uppercase"
+                    >
+                      Set score
+                    </Label>
+                    <Input
+                      id={`set-score-${alliance}`}
+                      type="number"
+                      className="w-24"
+                      placeholder={String(points[alliance] ?? 0)}
+                      value={manual[alliance]}
+                      onChange={(e) =>
+                        setManual((prev) => ({
+                          ...prev,
+                          [alliance]: e.target.value,
+                        }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void setScoreTo(alliance)
+                      }}
+                    />
+                  </div>
                   <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={async () => {
-                      await undoFn({ data: { scoreEventId: e.id } })
-                      const matches = await listMatches({
-                        data: { eventId: match.eventId },
-                      })
-                      const updated = matches.find((m) => m.id === match.id)
-                      setPoints({
-                        red: updated?.redPoints ?? null,
-                        blue: updated?.bluePoints ?? null,
-                      })
-                      await refresh()
-                    }}
+                    variant="outline"
+                    size="sm"
+                    disabled={manual[alliance].trim() === ""}
+                    onClick={() => void setScoreTo(alliance)}
                   >
-                    undo
+                    Set
                   </Button>
-                </li>
-              ))}
-            </ul>
-          </ScrollArea>
-          <div className="flex justify-between">
-            <Button variant="ghost" size="sm" onClick={refresh}>
-              Refresh log
-            </Button>
-            <Button
-              size="sm"
-              onClick={async () => {
+                </div>
+              </div>
+            ))}
+
+            <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-1">
+              <h3 className="text-xs font-medium">Recorded events</h3>
+              <ScrollArea className="h-40 border lg:h-auto lg:min-h-0 lg:flex-1">
+                <ul className="flex flex-col text-xs">
+                  {log.length === 0 && (
+                    <li className="p-2 text-muted-foreground">None yet.</li>
+                  )}
+                  {/* newest first, undo at the right edge of its own row */}
+                  {log
+                    .slice()
+                    .reverse()
+                    .map((e) => (
+                      <li
+                        key={e.id}
+                        className="flex items-center justify-between gap-2 border-b border-border/50 px-2 py-1 last:border-b-0"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span
+                            className="text-[0.65rem] font-semibold uppercase"
+                            style={{ color: `var(--alliance-${e.alliance})` }}
+                          >
+                            {e.alliance}
+                          </span>
+                          {describeEvent(e.type, e.payload)}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={async () => {
+                            try {
+                              await undoFn({ data: { scoreEventId: e.id } })
+                              await refresh()
+                            } catch (error) {
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : String(error)
+                              )
+                            }
+                          }}
+                        >
+                          Undo
+                        </Button>
+                      </li>
+                    ))}
+                </ul>
+              </ScrollArea>
+            </div>
+          </div>
+        </ScrollArea>
+
+        <div className="flex justify-between">
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-destructive"
+            onClick={() => setResetConfirm(true)}
+          >
+            <RotateCcwIcon />
+            Reset match
+          </Button>
+          <Button
+            size="sm"
+            onClick={async () => {
+              try {
                 await postFn({ data: { matchId: match.id } })
                 toast.success("Match posted")
                 onClose()
-              }}
-            >
-              Post match
-            </Button>
-          </div>
+              } catch (error) {
+                toast.error(
+                  error instanceof Error ? error.message : String(error)
+                )
+              }
+            }}
+          >
+            Post match
+          </Button>
         </div>
+
+        <AlertDialog open={resetConfirm} onOpenChange={setResetConfirm}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Reset {matchShortLabel(match)}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This clears every recorded score event, zeroes both totals, and
+                returns the match to scheduled — even if it was posted. This
+                cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={async () => {
+                  setResetConfirm(false)
+                  try {
+                    await resetFn({
+                      data: { eventId: match.eventId, matchId: match.id },
+                    })
+                    toast.success("Match reset")
+                    await refresh()
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : String(error)
+                    )
+                  }
+                }}
+              >
+                Reset match
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   )

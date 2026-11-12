@@ -52,3 +52,15 @@ export const provisionTeamAccount = createServerFn({ method: "POST" })
   .handler(({ data }) =>
     teams.provisionTeamAccount(db, data.teamId, data.password)
   )
+
+export const bulkProvisionTeamAccounts = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .validator(
+    z.object({
+      teamIds: z.array(z.string()).min(1),
+      password: z.string().min(4).max(64),
+    })
+  )
+  .handler(({ data }) =>
+    teams.bulkProvisionTeamAccounts(db, data.teamIds, data.password)
+  )

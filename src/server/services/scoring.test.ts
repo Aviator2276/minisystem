@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest"
+import { eq } from "drizzle-orm"
 import { tables } from "@/db"
 import type { Db } from "@/db"
 import { createTestDb } from "@/db/db.test"
@@ -6,8 +7,10 @@ import { PointValues } from "@/games/stronghold"
 import { adjustRankingPoints, attachTeams, createEvent } from "./events"
 import { computeRankings } from "./rankings"
 import {
+  MANUAL_ADJUST,
   postMatch,
   recordScoreEvent,
+  resetMatch,
   resetMatchScores,
   undoScoreEvent,
 } from "./scoring"
@@ -42,6 +45,14 @@ function makeMatch(
     })
     .returning()
     .get()
+}
+
+function getMatchRow(id: string) {
+  return db
+    .select()
+    .from(tables.matches)
+    .where(eq(tables.matches.id, id))
+    .get()!
 }
 
 function score(
@@ -130,6 +141,68 @@ describe("scoring pipeline", () => {
     expect(reset.redPoints).toBeNull()
     expect(reset.status).toBe("scheduled")
     expect(reset.winner).toBeNull()
+  })
+})
+
+describe("manual score adjustments", () => {
+  it("folds signed adjustments onto the computed total and stays undoable", () => {
+    const match = makeMatch(1, teamIds.slice(0, 3), teamIds.slice(3, 6))
+    score(match.id, "red", "HIGH_GOAL") // 5
+    score(match.id, "red", MANUAL_ADJUST, { points: 7 }) // → 12
+    const negative = score(match.id, "red", MANUAL_ADJUST, { points: -2 }) // → 10
+
+    let cached = getMatchRow(match.id)
+    expect(cached.redPoints).toBe(PointValues.HIGH_GOAL + 5)
+
+    undoScoreEvent(db, negative.id)
+    cached = getMatchRow(match.id)
+    expect(cached.redPoints).toBe(PointValues.HIGH_GOAL + 7)
+  })
+
+  it("rejects a malformed adjustment payload", () => {
+    const match = makeMatch(1, teamIds.slice(0, 3), teamIds.slice(3, 6))
+    expect(() => score(match.id, "red", MANUAL_ADJUST, {})).toThrow()
+  })
+})
+
+describe("resetMatch (full admin reset)", () => {
+  it("returns a posted match to scheduled with everything cleared", () => {
+    const match = makeMatch(1, teamIds.slice(0, 3), teamIds.slice(3, 6))
+    score(match.id, "red", "HIGH_GOAL")
+    postMatch(db, match.id)
+    const reset = resetMatch(db, eventId, match.id)
+    expect(reset.status).toBe("scheduled")
+    expect(reset.redPoints).toBeNull()
+    expect(reset.winner).toBeNull()
+    expect(reset.redRP).toBeNull()
+  })
+
+  it("refuses a running match", () => {
+    const match = makeMatch(1, teamIds.slice(0, 3), teamIds.slice(3, 6), {
+      status: "running",
+    })
+    expect(() => resetMatch(db, eventId, match.id)).toThrow(/running/)
+  })
+
+  it("refuses a bracket match whose result already fed a posted match", () => {
+    const feeder = makeMatch(10, teamIds.slice(0, 3), teamIds.slice(3, 6), {
+      type: "playoff",
+      bracketSlot: "M1",
+      status: "posted",
+      winner: "red",
+      redPoints: 10,
+      bluePoints: 5,
+    })
+    makeMatch(11, teamIds.slice(0, 3), teamIds.slice(3, 6), {
+      type: "playoff",
+      bracketSlot: "F",
+      redSource: "winner:M1",
+      status: "posted",
+      winner: "red",
+      redPoints: 12,
+      bluePoints: 4,
+    })
+    expect(() => resetMatch(db, eventId, feeder.id)).toThrow(/already posted/)
   })
 })
 

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
+import { RankingsUpdatedCaption } from "@/components/rankings-caption"
 import { ScaleToFit } from "@/components/scale-to-fit"
-import { ScheduleView } from "@/components/schedule-view"
+import { buildAllianceNumbers, ScheduleView } from "@/components/schedule-view"
 import { useRealtime } from "@/hooks/use-realtime"
 import {
   RANKINGS_PAGE_MS,
@@ -63,9 +64,13 @@ function TvMode() {
   }, [boot.rankings.length, boot.matches.length, boot.bracket.matches.length])
 
   const [index, setIndex] = useState(0)
+  // when locked (double-click a dot), auto-rotation pauses on that panel until
+  // it is unlocked (double-click again) or a plain single-click resumes it
+  const [locked, setLocked] = useState(false)
   // the rankings panel stays long enough to page through every team before
   // rotating away; other panels use the fixed dwell
   useEffect(() => {
+    if (locked) return
     const current = panels[index % panels.length]
     const rankingPages = Math.max(
       1,
@@ -80,7 +85,35 @@ function TvMode() {
       duration
     )
     return () => clearTimeout(t)
-  }, [index, panels, boot.rankings.length])
+  }, [index, panels, boot.rankings.length, locked])
+
+  // Dot interaction: a single click jumps to that panel and (re)starts
+  // rotation; a double-click locks/unlocks rotation on that panel. We
+  // disambiguate the two ourselves (rather than onClick + onDoubleClick, which
+  // both fire) so the actions never fight each other.
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (clickTimer.current) clearTimeout(clickTimer.current)
+    },
+    []
+  )
+  function onDot(i: number) {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current)
+      clickTimer.current = null
+      // double-click: toggle the lock on this panel
+      setIndex(i)
+      setLocked((wasLocked) => !(wasLocked && index === i))
+      return
+    }
+    clickTimer.current = setTimeout(() => {
+      clickTimer.current = null
+      // single-click: navigate and resume rotation
+      setIndex(i)
+      setLocked(false)
+    }, 250)
+  }
 
   const panel = panels[index % panels.length]
 
@@ -89,14 +122,24 @@ function TvMode() {
       <header className="flex shrink-0 items-center justify-between border-b border-border px-8 py-3">
         <span className="text-xl font-bold">{boot.event.name}</span>
         <div className="flex items-center gap-3">
-          {panels.map((p, i) => (
-            <div
-              key={p}
-              className={`size-2 transition-colors duration-300 ${
-                i === index % panels.length ? "bg-foreground" : "bg-muted"
-              }`}
-            />
-          ))}
+          {panels.map((p, i) => {
+            const active = i === index % panels.length
+            return (
+              <button
+                key={p}
+                type="button"
+                aria-label={`Show ${p}${active && locked ? " (locked)" : ""}`}
+                onClick={() => onDot(i)}
+                className={`size-2 cursor-pointer transition-colors duration-300 ${
+                  active
+                    ? locked
+                      ? "bg-red-500"
+                      : "bg-foreground"
+                    : "bg-muted hover:bg-muted-foreground"
+                }`}
+              />
+            )
+          })}
         </div>
       </header>
 
@@ -110,7 +153,9 @@ function TvMode() {
             exit={{ opacity: 0, x: -80 }}
             transition={{ duration: 0.45, ease: "easeOut" }}
           >
-            {panel === "rankings" && <TvRankings rankings={boot.rankings} />}
+            {panel === "rankings" && (
+              <TvRankings rankings={boot.rankings} matches={boot.matches} />
+            )}
             {panel === "upnext" && (
               <TvUpNext
                 matches={boot.matches}
@@ -130,6 +175,7 @@ function TvMode() {
                   teams={boot.teams}
                   currentMatchId={field.matchId}
                   order={allianceOrder(boot.event.flipAllianceSides)}
+                  allianceNumbers={buildAllianceNumbers(boot.bracket.matches)}
                   dark
                 />
               </div>
@@ -175,14 +221,19 @@ function TvMode() {
 
 function Centered({
   title,
+  caption,
   children,
 }: {
   title: string
+  caption?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto">
-      <h1 className="text-center text-4xl font-bold">{title}</h1>
+      <div className="flex flex-col items-center gap-1">
+        <h1 className="text-center text-4xl font-bold">{title}</h1>
+        {caption}
+      </div>
       {children}
     </div>
   )
@@ -190,7 +241,15 @@ function Centered({
 
 function TvRankings({
   rankings,
+  matches,
 }: {
+  matches: readonly {
+    type: string
+    number: number
+    bracketSlot?: string | null
+    status: string
+    scheduledOrder: number
+  }[]
   rankings: {
     teamId: string
     rank: number
@@ -212,7 +271,10 @@ function TvRankings({
   const visible = rankings.slice(start, end)
 
   return (
-    <Centered title="Rankings">
+    <Centered
+      title="Rankings"
+      caption={<RankingsUpdatedCaption matches={matches} />}
+    >
       <table className="mx-auto w-full max-w-3xl text-2xl">
         <tbody key={page}>
           {visible.map((row, i) => (

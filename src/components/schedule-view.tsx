@@ -34,18 +34,43 @@ interface ScheduleTeam {
  * and the two after it. Animates as the field advances. Shared by the arena
  * display and the TV rotation.
  */
+/** playoff alliance numbers per match id, for the alliance badges */
+export type AllianceNumberMap = Map<
+  string,
+  { red: number | null; blue: number | null }
+>
+
+/** builds the match-id → alliance-number lookup from bracket matches */
+export function buildAllianceNumbers(
+  bracketMatches: Array<{
+    id: string
+    redAllianceNumber: number | null
+    blueAllianceNumber: number | null
+  }>
+): AllianceNumberMap {
+  return new Map(
+    bracketMatches.map((m) => [
+      m.id,
+      { red: m.redAllianceNumber, blue: m.blueAllianceNumber },
+    ])
+  )
+}
+
 export function ScheduleView({
   matches,
   teams,
   currentMatchId,
   order,
   dark = false,
+  allianceNumbers,
 }: {
   matches: ScheduleMatch[]
   teams: ScheduleTeam[]
   currentMatchId: string | null
   order: readonly [Alliance, Alliance]
   dark?: boolean
+  /** playoff match id → alliance numbers; renders an "A{n}" badge per side */
+  allianceNumbers?: AllianceNumberMap
 }) {
   const numbers = new Map(teams.map((t) => [t.teamId, t.number]))
   const queue = sortMatchesByType(matches)
@@ -100,6 +125,7 @@ export function ScheduleView({
                 order={order}
                 highlight={highlight}
                 dark={dark}
+                allianceNumbers={allianceNumbers?.get(match.id)}
               />
             </motion.div>
           )
@@ -115,12 +141,14 @@ function ScheduleRow({
   order,
   highlight,
   dark,
+  allianceNumbers,
 }: {
   match: ScheduleMatch
   numbers: Map<string, number>
   order: readonly [Alliance, Alliance]
   highlight: "current" | "next" | null
   dark: boolean
+  allianceNumbers?: { red: number | null; blue: number | null }
 }) {
   const posted = match.status === "posted"
   return (
@@ -167,7 +195,12 @@ function ScheduleRow({
                 vs
               </span>
             )}
-            <AllianceTeams match={match} side={side} numbers={numbers} />
+            <AllianceTeams
+              match={match}
+              side={side}
+              numbers={numbers}
+              allianceNumber={allianceNumbers?.[side] ?? null}
+            />
           </div>
         ))}
       </div>
@@ -197,10 +230,12 @@ function AllianceTeams({
   match,
   side,
   numbers,
+  allianceNumber,
 }: {
   match: ScheduleMatch
   side: Alliance
   numbers: Map<string, number>
+  allianceNumber?: number | null
 }) {
   const ids =
     side === "red"
@@ -211,6 +246,15 @@ function AllianceTeams({
 
   return (
     <div className="flex items-center gap-1.5">
+      {allianceNumber != null && (
+        <span
+          className="px-1.5 py-0.5 text-center text-sm font-bold tabular-nums"
+          style={{ color, border: `1px solid ${color}` }}
+          title={`Alliance ${allianceNumber}`}
+        >
+          A{allianceNumber}
+        </span>
+      )}
       {ids.map((id, i) => (
         <span
           key={i}

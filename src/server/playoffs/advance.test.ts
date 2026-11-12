@@ -10,6 +10,7 @@ import {
   generateBracket,
   getBracket,
   playoffMatches,
+  reshapeFinals,
   resolveBracket,
 } from "./advance"
 import { bracketTemplate } from "./templates"
@@ -333,5 +334,85 @@ describe("bracket generation + advancement", () => {
     generateBracket(db, eventId)
     decide(playoffMatches(db, eventId)[0].id, "red")
     expect(() => generateBracket(db, eventId)).toThrow(/no longer/)
+  })
+})
+
+describe("reshapeFinals (mid-playoff format change)", () => {
+  it("expands F into F1/F2/F3 after earlier rounds have posted", () => {
+    setupAlliances(4)
+    generateBracket(db, eventId)
+    const bySlot = () =>
+      new Map(playoffMatches(db, eventId).map((m) => [m.bracketSlot, m]))
+    const oldF = bySlot().get("F")!
+    decide(bySlot().get("M1")!.id, "red") // posted result blocks regeneration…
+    expect(() => generateBracket(db, eventId)).toThrow()
+
+    expect(reshapeFinals(db, eventId, true)).toBe(true) // …but reshape works
+    const finals = playoffMatches(db, eventId).filter((m) =>
+      (m.bracketSlot ?? "").startsWith("F")
+    )
+    expect(finals.map((m) => m.bracketSlot)).toEqual(["F1", "F2", "F3"])
+    const [f1, f2, f3] = finals
+    // F1 takes over the old F's spot in the play order; game 2 swaps colors
+    expect(f1.scheduledOrder).toBe(oldF.scheduledOrder)
+    expect(f1.redSource).toBe(oldF.redSource)
+    expect(f2.redSource).toBe(oldF.blueSource)
+    expect(f2.blueSource).toBe(oldF.redSource)
+    expect(f3.redSource).toBe(oldF.redSource)
+    // the posted match and the rest of the bracket are untouched
+    expect(bySlot().get("M1")!.status).toBe("posted")
+    expect(playoffMatches(db, eventId)).toHaveLength(8)
+
+    playItOut()
+    expect(getBracket(db, eventId).champion?.number).toBe(1)
+  })
+
+  it("collapses F1/F2/F3 back into a single F", () => {
+    setupAlliances(4)
+    db.update(tables.events)
+      .set({ settings: { finalsBestOf3: true } })
+      .where(eq(tables.events.id, eventId))
+      .run()
+    generateBracket(db, eventId)
+    decide(playoffMatches(db, eventId)[0].id, "red")
+    const oldF1 = playoffMatches(db, eventId).find(
+      (m) => m.bracketSlot === "F1"
+    )!
+
+    expect(reshapeFinals(db, eventId, false)).toBe(true)
+    const finals = playoffMatches(db, eventId).filter((m) =>
+      (m.bracketSlot ?? "").startsWith("F")
+    )
+    expect(finals.map((m) => m.bracketSlot)).toEqual(["F"])
+    expect(finals[0].scheduledOrder).toBe(oldF1.scheduledOrder)
+    expect(playoffMatches(db, eventId)).toHaveLength(6)
+
+    playItOut()
+    expect(getBracket(db, eventId).champion?.number).toBe(1)
+  })
+
+  it("is a no-op when the bracket already has the requested shape", () => {
+    setupAlliances(4)
+    generateBracket(db, eventId)
+    expect(reshapeFinals(db, eventId, false)).toBe(false)
+    expect(playoffMatches(db, eventId)).toHaveLength(6)
+  })
+
+  it("rejects once a finals match has posted results", () => {
+    setupAlliances(4)
+    generateBracket(db, eventId)
+    playItOut() // everything, including F, is posted
+    expect(() => reshapeFinals(db, eventId, true)).toThrow(/posted results/)
+  })
+
+  it("rejects while a finals match is on the field", () => {
+    setupAlliances(4)
+    generateBracket(db, eventId)
+    const f = playoffMatches(db, eventId).find((m) => m.bracketSlot === "F")!
+    db.update(tables.events)
+      .set({ currentMatchId: f.id })
+      .where(eq(tables.events.id, eventId))
+      .run()
+    expect(() => reshapeFinals(db, eventId, true)).toThrow(/on the field/)
   })
 })

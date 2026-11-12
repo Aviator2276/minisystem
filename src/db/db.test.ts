@@ -76,12 +76,14 @@ describe("db schema", () => {
     expect(db.query.matches.findFirst().sync()?.surrogates).toEqual([])
   })
 
-  it("enforces unique team numbers and event/team pairs", () => {
+  it("allows duplicate team numbers but keeps event/team pairs unique", () => {
     const db = createTestDb()
+    // team numbers are NOT globally unique (per-event uniqueness is enforced in
+    // the service layer, not the DB) — two rows may share a number
     db.insert(tables.teams).values({ number: 7, name: "A" }).run()
     expect(() =>
       db.insert(tables.teams).values({ number: 7, name: "B" }).run()
-    ).toThrow()
+    ).not.toThrow()
 
     const [team] = db
       .insert(tables.teams)

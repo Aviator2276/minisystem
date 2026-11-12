@@ -27,6 +27,13 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Table,
   TableBody,
   TableCell,
@@ -36,8 +43,10 @@ import {
 } from "@/components/ui/table"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
+import { listEvents } from "@/server/functions/events"
 import {
   addParticipant,
+  bulkProvisionTeamAccounts,
   createTeam,
   deleteTeam,
   listTeams,
@@ -47,29 +56,56 @@ import {
 import { KeyRoundIcon, ListPlusIcon, PlusIcon, Trash2Icon } from "lucide-react"
 
 export const Route = createFileRoute("/admin/teams")({
-  loader: () => listTeams(),
+  loader: async () => ({
+    teams: await listTeams(),
+    events: await listEvents(),
+  }),
   component: TeamsPage,
 })
 
 type Team = Awaited<ReturnType<typeof listTeams>>[number]
 
+// event filter sentinels
+const FILTER_ALL = "__all__"
+const FILTER_NONE = "__none__"
+
 function TeamsPage() {
-  const teams = Route.useLoaderData()
+  const { teams, events } = Route.useLoaderData()
   const router = useRouter()
   const createFn = useServerFn(createTeam)
   const deleteFn = useServerFn(deleteTeam)
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkPwOpen, setBulkPwOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false)
   const [credsFor, setCredsFor] = useState<Team | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Team | null>(null)
+  const [eventFilter, setEventFilter] = useState<string>(FILTER_ALL)
 
-  const allSelected = teams.length > 0 && selected.size === teams.length
+  const visibleTeams = useMemo(() => {
+    if (eventFilter === FILTER_ALL) return teams
+    if (eventFilter === FILTER_NONE)
+      return teams.filter((t) => t.events.length === 0)
+    return teams.filter((t) => t.events.some((e) => e.id === eventFilter))
+  }, [teams, eventFilter])
+
+  const allSelected =
+    visibleTeams.length > 0 &&
+    visibleTeams.every((t) => selected.has(t.id))
   const someSelected = selected.size > 0 && !allSelected
+  const selectedTeams = teams.filter((t) => selected.has(t.id))
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(teams.map((t) => t.id)))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allSelected) {
+        for (const t of visibleTeams) next.delete(t.id)
+      } else {
+        for (const t of visibleTeams) next.add(t.id)
+      }
+      return next
+    })
   }
 
   function toggleOne(id: string) {
@@ -81,10 +117,34 @@ function TeamsPage() {
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
+    <div className="flex max-w-5xl flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-sm font-medium">Teams</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={eventFilter} onValueChange={setEventFilter}>
+            <SelectTrigger size="sm" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={FILTER_ALL}>All teams</SelectItem>
+              <SelectItem value={FILTER_NONE}>No event</SelectItem>
+              {events.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selected.size > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setBulkPwOpen(true)}
+            >
+              <KeyRoundIcon />
+              Set password ({selected.size})
+            </Button>
+          )}
           {selected.size > 0 && (
             <Button
               size="sm"
@@ -128,8 +188,10 @@ function TeamsPage() {
                     })
                     setCreateOpen(false)
                     await router.invalidate()
-                  } catch {
-                    toast.error("Could not create team — is the number unique?")
+                  } catch (error) {
+                    toast.error(
+                      `Could not create team: ${error instanceof Error ? error.message : String(error)}`
+                    )
                   }
                 }}
               >
@@ -178,13 +240,24 @@ function TeamsPage() {
             </TableHead>
             <TableHead>#</TableHead>
             <TableHead>Name</TableHead>
+            <TableHead>Events</TableHead>
             <TableHead>Participants</TableHead>
             <TableHead>Login</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {teams.map((team) => (
+          {visibleTeams.length === 0 && (
+            <TableRow>
+              <TableCell
+                colSpan={7}
+                className="text-center text-sm text-muted-foreground"
+              >
+                No teams match this filter.
+              </TableCell>
+            </TableRow>
+          )}
+          {visibleTeams.map((team) => (
             <TeamRow
               key={team.id}
               team={team}
@@ -200,6 +273,16 @@ function TeamsPage() {
       {credsFor && (
         <ProvisionDialog team={credsFor} onClose={() => setCredsFor(null)} />
       )}
+
+      <BulkPasswordDialog
+        open={bulkPwOpen}
+        onOpenChange={setBulkPwOpen}
+        teams={selectedTeams}
+        onDone={() => {
+          setSelected(new Set())
+          router.invalidate()
+        }}
+      />
 
       <AlertDialog
         open={pendingDelete !== null}
@@ -300,6 +383,19 @@ function TeamRow({
       </TableCell>
       <TableCell className="font-mono">{team.number}</TableCell>
       <TableCell>{team.name}</TableCell>
+      <TableCell className="whitespace-normal">
+        {team.events.length === 0 ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : (
+          <span className="flex flex-wrap gap-1">
+            {team.events.map((e) => (
+              <Badge key={e.id} variant="outline">
+                {e.name}
+              </Badge>
+            ))}
+          </span>
+        )}
+      </TableCell>
       <TableCell className="whitespace-normal">
         <span className="flex flex-wrap items-center gap-1">
           {team.participants.map((p) => (
@@ -449,6 +545,115 @@ function ProvisionDialog({
   )
 }
 
+function BulkPasswordDialog({
+  open,
+  onOpenChange,
+  teams,
+  onDone,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  teams: Team[]
+  onDone: () => void
+}) {
+  const bulkFn = useServerFn(bulkProvisionTeamAccounts)
+  const [submitting, setSubmitting] = useState(false)
+  // snapshot the affected teams so the summary survives the selection reset
+  const [done, setDone] = useState<{ password: string; count: number } | null>(
+    null
+  )
+
+  const count = teams.length
+
+  function close() {
+    onOpenChange(false)
+    setDone(null)
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (submitting) return
+        if (!o) close()
+        else onOpenChange(true)
+      }}
+    >
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            Set password for {count} team{count !== 1 ? "s" : ""}
+          </DialogTitle>
+          <DialogDescription>
+            The same password is applied to every selected team, creating a
+            login for any that don't have one yet. Each team signs in with its
+            own team number.
+          </DialogDescription>
+        </DialogHeader>
+        {done ? (
+          <>
+            <p className="bg-muted p-3 font-mono text-sm break-all">
+              password: {done.password}
+            </p>
+            <DialogDescription>
+              Applied to {done.count} team{done.count !== 1 ? "s" : ""}. The
+              password is shown only once.
+            </DialogDescription>
+            <DialogFooter>
+              <Button onClick={close}>Done</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const password = String(
+                new FormData(e.currentTarget).get("password")
+              ).trim()
+              if (password.length < 4) {
+                toast.error("Password must be at least 4 characters")
+                return
+              }
+              setSubmitting(true)
+              try {
+                const result = await bulkFn({
+                  data: { teamIds: teams.map((t) => t.id), password },
+                })
+                setDone({ password, count: result.accounts.length })
+                onDone()
+              } catch (error) {
+                toast.error(
+                  error instanceof Error ? error.message : String(error)
+                )
+              } finally {
+                setSubmitting(false)
+              }
+            }}
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="bulk-password">Password</Label>
+              <Input
+                id="bulk-password"
+                name="password"
+                type="text"
+                minLength={4}
+                required
+                autoFocus
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={submitting || count === 0}>
+                {submitting ? "Applying…" : "Set password"}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 interface ParsedRow {
   number: number
   name: string
@@ -525,9 +730,11 @@ function BulkAddDialog({
         for (const name of row.participants) {
           await addParticipantFn({ data: { teamId: team.id, name } })
         }
-      } catch {
+      } catch (error) {
         failed++
-        toast.error(`Team ${row.number} already exists — skipped`)
+        toast.error(
+          `Could not create team ${row.number}: ${error instanceof Error ? error.message : String(error)}`
+        )
       }
     }
     setSubmitting(false)

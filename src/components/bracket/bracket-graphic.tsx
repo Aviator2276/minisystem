@@ -75,16 +75,24 @@ export function BracketGraphic({
   const [lines, setLines] = useState<Line[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
 
+  // off-bracket "extra" playoff matches have no bracketSlot — they don't belong
+  // in the double-elim layout, so the graphic ignores them entirely
+  const slotted = useMemo(
+    () => bracket.matches.filter((m) => m.bracketSlot),
+    [bracket.matches]
+  )
+
   // one line per match: where its winner advances. Derived from each row whose
   // source is `winner:SLOT` (loser drops are intentionally not drawn).
   const connectors = useMemo<Connector[]>(() => {
     const out: Connector[] = []
-    for (const m of bracket.matches) {
-      // best-of-3 games 2 & 3 are a rematch of the same two finalists, not fed
-      // by other matches' winners — drawing their winner:M.. lines clutters the
+    for (const m of slotted) {
+      // finals games 2+ are a rematch of the same two finalists, not fed by
+      // other matches' winners — drawing their winner:M.. lines clutters the
       // flow, so only the first final keeps its incoming feeder lines. Instead
-      // we chain F1 → F2 → F3 below so the series reads as a left-to-right row.
-      if (m.bracketSlot === "F2" || m.bracketSlot === "F3") continue
+      // we chain F1 → F2 → F3 → … below so the series reads as a row.
+      const seriesGame = /^F(\d+)$/.exec(m.bracketSlot ?? "")
+      if (seriesGame && Number(seriesGame[1]) >= 2) continue
       for (const side of ["red", "blue"] as const) {
         const src = side === "red" ? m.redSource : m.blueSource
         if (!src) continue
@@ -94,14 +102,14 @@ export function BracketGraphic({
         }
       }
     }
-    // chain the best-of-3 finals games in succession: F1 → F2 → F3
-    for (const m of bracket.matches) {
-      const fm = /^F([23])$/.exec(m.bracketSlot ?? "")
-      if (fm)
+    // chain the finals games in succession: F1 → F2 → F3 → …
+    for (const m of slotted) {
+      const fm = /^F(\d+)$/.exec(m.bracketSlot ?? "")
+      if (fm && Number(fm[1]) >= 2)
         out.push({ from: `F${Number(fm[1]) - 1}`, to: `${m.bracketSlot}:red` })
     }
     return out
-  }, [bracket.matches])
+  }, [slotted])
 
   // measure after layout; the lines live in the container's pixel space so they
   // scroll with the content
@@ -172,24 +180,21 @@ export function BracketGraphic({
     }
   }, [connectors, currentMatchId, dark])
 
-  if (bracket.matches.length === 0) {
+  if (slotted.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">No bracket generated yet.</p>
     )
   }
 
-  // bracket.matches is in scheduledOrder; "next" is the next still-scheduled
+  // slotted is in scheduledOrder; "next" is the next still-scheduled bracket
   // match after the current one (or the first scheduled if none is current)
-  const currentIndex = bracket.matches.findIndex((m) => m.id === currentMatchId)
+  const currentIndex = slotted.findIndex((m) => m.id === currentMatchId)
   const nextMatchId =
-    (currentIndex >= 0
-      ? bracket.matches.slice(currentIndex + 1)
-      : bracket.matches
-    ).find((m) => m.status === "scheduled")?.id ?? null
+    (currentIndex >= 0 ? slotted.slice(currentIndex + 1) : slotted).find(
+      (m) => m.status === "scheduled"
+    )?.id ?? null
 
-  const rounds = [...new Set(bracket.matches.map((m) => m.round))].sort(
-    (a, b) => a - b
-  )
+  const rounds = [...new Set(slotted.map((m) => m.round))].sort((a, b) => a - b)
   const lanes: Array<{ label: string; filter: (m: BracketMatch) => boolean }> =
     [
       {
@@ -250,7 +255,7 @@ export function BracketGraphic({
 
           <div className="relative z-10 flex flex-col gap-4">
             {lanes.map((lane) => {
-              const laneMatches = bracket.matches.filter(lane.filter)
+              const laneMatches = slotted.filter(lane.filter)
               if (laneMatches.length === 0) return null
               return (
                 <div key={lane.label} className="flex flex-col gap-1.5">
@@ -462,7 +467,7 @@ function SideRow({
 /** Header label for a bracket card: the grand final(s) read "FINAL"/"FINAL 1". */
 function finalSlotLabel(slot: string): string {
   if (slot === "F") return "FINAL"
-  const m = /^F([123])$/.exec(slot)
+  const m = /^F(\d+)$/.exec(slot)
   return m ? `FINAL ${m[1]}` : slot
 }
 

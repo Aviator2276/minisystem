@@ -24,7 +24,10 @@ export type UserRole = "admin" | "team"
 export const users = sqliteTable("users", {
   id: id(),
   role: text("role").$type<UserRole>().notNull(),
-  username: text("username").notNull().unique(),
+  // Not unique: multiple team rows can share a number (e.g. the same number at
+  // different events), so multiple team accounts can share the padded-number
+  // username. Login resolves the collision by password (see functions/auth.ts).
+  username: text("username").notNull(),
   passwordHash: text("password_hash").notNull(),
   teamId: text("team_id").references(() => teams.id),
   createdAt: createdAt(),
@@ -40,9 +43,12 @@ export const sessions = sqliteTable("sessions", {
   createdAt: createdAt(),
 })
 
+// Team numbers are NOT globally unique: the same number may exist as separate
+// rows tied to different events. Per-event uniqueness (no two teams sharing a
+// number on one roster) is enforced in the service layer (attachTeams).
 export const teams = sqliteTable("teams", {
   id: id(),
-  number: integer("number").notNull().unique(),
+  number: integer("number").notNull(),
   name: text("name").notNull(),
   createdAt: createdAt(),
 })

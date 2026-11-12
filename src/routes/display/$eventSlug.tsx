@@ -3,10 +3,11 @@ import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { BracketGraphic } from "@/components/bracket/bracket-graphic"
 import { ScaleToFit } from "@/components/scale-to-fit"
-import { ScheduleView } from "@/components/schedule-view"
+import { buildAllianceNumbers, ScheduleView } from "@/components/schedule-view"
 import { SelectionBoard } from "@/components/selection-board"
 import { AnimatedNumber } from "@/components/animated-number"
 import { Confetti } from "@/components/display/confetti"
+import { RankingsUpdatedCaption } from "@/components/rankings-caption"
 import { Button } from "@/components/ui/button"
 import { Scoreboard } from "@/components/display-scoreboard"
 import type { AllianceLive } from "@/components/display-scoreboard"
@@ -179,6 +180,14 @@ function DisplayScreen() {
   useEffect(() => {
     setMatches(boot.matches)
   }, [boot.matches])
+
+  // re-sync selection when the loader refetches (e.g. a qual-score edit fires
+  // rankings_update): the available bank is in live rank order, so a ranking
+  // shift must re-order it. selection_update patches don't invalidate the
+  // loader, so boot.selection's reference is stable between them — no clobber.
+  useEffect(() => {
+    setSelection(boot.selection)
+  }, [boot.selection])
 
   // Preload + reuse one Audio element per cue. Creating a fresh `new Audio()`
   // on every play has to fetch and decode the file first — that's the lag on
@@ -458,6 +467,7 @@ function DisplayScreen() {
             {view === "rankings" && (
               <RankingsView
                 rankings={boot.rankings}
+                matches={matches}
                 pageMs={
                   boot.event.autoRotateViews ? ROTATE_SLIDE_MS : undefined
                 }
@@ -498,6 +508,7 @@ function DisplayScreen() {
                   teams={boot.teams}
                   currentMatchId={field.matchId}
                   order={order}
+                  allianceNumbers={buildAllianceNumbers(boot.bracket.matches)}
                   dark
                 />
               </div>
@@ -1297,6 +1308,7 @@ function LineupBanner({
 
 function RankingsView({
   rankings,
+  matches,
   pageMs,
 }: {
   rankings: {
@@ -1311,6 +1323,13 @@ function RankingsView({
     losses: number
     ties: number
   }[]
+  matches: readonly {
+    type: string
+    number: number
+    bracketSlot?: string | null
+    status: string
+    scheduledOrder: number
+  }[]
   pageMs?: number
 }) {
   const { page, pageCount, start, end } = useRotatingPage(
@@ -1322,13 +1341,14 @@ function RankingsView({
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 p-10">
-      <motion.h1
-        className="text-4xl font-bold"
+      <motion.div
+        className="flex flex-col items-center gap-1"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        Rankings
-      </motion.h1>
+        <h1 className="text-4xl font-bold">Rankings</h1>
+        <RankingsUpdatedCaption matches={matches} />
+      </motion.div>
       <table className="w-full max-w-3xl text-2xl">
         <thead className="text-base tracking-widest text-white/50 uppercase">
           <tr>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
-import { LogInIcon, TvIcon } from "lucide-react"
+import { LogInIcon, SearchIcon, TvIcon } from "lucide-react"
 import {
   Area,
   AreaChart,
@@ -23,6 +23,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 import type { ChartConfig } from "@/components/ui/chart"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -53,7 +54,7 @@ import type {
 } from "@/shared/advanced-stats"
 import { allianceOrder } from "@/shared/alliance"
 import type { Alliance } from "@/shared/alliance"
-import { matchShortLabel } from "@/shared/match-format"
+import { matchShortLabel, sortMatchesByType } from "@/shared/match-format"
 import { topicFor } from "@/shared/realtime-messages"
 import type { ScoreTotals } from "@/shared/score-types"
 
@@ -189,20 +190,14 @@ function PublicEventPage() {
           </TabsContent>
 
           <TabsContent value="schedule" className="flex flex-col gap-2 pt-2">
-            {boot.matches.length === 0 ? (
-              <Empty>No matches scheduled yet.</Empty>
-            ) : (
-              boot.matches.map((match) => (
-                <MatchRow
-                  key={match.id}
-                  match={match}
-                  isCurrent={match.id === boot.field.matchId}
-                  running={boot.field.running}
-                  teamById={teamById}
-                  order={order}
-                />
-              ))
-            )}
+            <ScheduleTab
+              matches={boot.matches}
+              bracketMatches={boot.bracket.matches}
+              currentMatchId={boot.field.matchId}
+              running={boot.field.running}
+              teamById={teamById}
+              order={order}
+            />
           </TabsContent>
 
           <TabsContent value="alliances" className="@container/board pt-2">
@@ -961,20 +956,141 @@ function teamHistory(matches: PublicMatch[], teamId: string) {
   return rows
 }
 
-// ── schedule match row (unchanged behaviour) ─────────────────────────────────
+// ── schedule tab: searchable match list ──────────────────────────────────────
 
-function MatchRow({
-  match,
-  isCurrent,
+type BracketMatch = Boot["bracket"]["matches"][number]
+
+/** parse a search string ("118 254", "118,254") into a set of team numbers */
+function parseTeamSearch(raw: string): Set<number> {
+  const nums = new Set<number>()
+  for (const token of raw.split(/[\s,]+/)) {
+    if (!token) continue
+    const n = Number(token)
+    if (Number.isInteger(n) && n > 0) nums.add(n)
+  }
+  return nums
+}
+
+function matchTeamNumbers(
+  match: PublicMatch,
+  teamById: Map<string, PublicTeam>
+): number[] {
+  return [
+    match.red1,
+    match.red2,
+    match.red3,
+    match.red4,
+    match.blue1,
+    match.blue2,
+    match.blue3,
+    match.blue4,
+  ]
+    .map((id) => (id ? teamById.get(id)?.number : undefined))
+    .filter((n): n is number => n !== undefined)
+}
+
+function ScheduleTab({
+  matches,
+  bracketMatches,
+  currentMatchId,
   running,
   teamById,
   order,
 }: {
-  match: PublicMatch
-  isCurrent: boolean
+  matches: PublicMatch[]
+  bracketMatches: BracketMatch[]
+  currentMatchId: string | null
   running: boolean
   teamById: Map<string, PublicTeam>
   order: readonly [Alliance, Alliance]
+}) {
+  const [search, setSearch] = useState("")
+  const searchNumbers = useMemo(() => parseTeamSearch(search), [search])
+
+  // playoff alliance numbers keyed by match id, for the alliance badges
+  const allianceNumbers = useMemo(
+    () =>
+      new Map(
+        bracketMatches.map((m) => [
+          m.id,
+          { red: m.redAllianceNumber, blue: m.blueAllianceNumber },
+        ])
+      ),
+    [bracketMatches]
+  )
+
+  // on-deck = the first still-scheduled match after the current one (play
+  // order). If nothing is on the field, it's the first unplayed match.
+  const onDeckId = useMemo(() => {
+    const queue = sortMatchesByType(matches)
+    const currentIndex = queue.findIndex((m) => m.id === currentMatchId)
+    const rest = currentIndex >= 0 ? queue.slice(currentIndex + 1) : queue
+    return rest.find((m) => m.status === "scheduled")?.id ?? null
+  }, [matches, currentMatchId])
+
+  const visible = useMemo(() => {
+    if (searchNumbers.size === 0) return matches
+    return matches.filter((m) =>
+      matchTeamNumbers(m, teamById).some((n) => searchNumbers.has(n))
+    )
+  }, [matches, searchNumbers, teamById])
+
+  if (matches.length === 0) {
+    return <Empty>No matches scheduled yet.</Empty>
+  }
+
+  return (
+    <>
+      <div className="relative">
+        <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search teams — e.g. 118 254"
+          inputMode="numeric"
+          aria-label="Filter matches by team number"
+          className="pl-8"
+        />
+      </div>
+      {visible.length === 0 ? (
+        <Empty>No matches involve those teams.</Empty>
+      ) : (
+        visible.map((match) => (
+          <MatchRow
+            key={match.id}
+            match={match}
+            isCurrent={match.id === currentMatchId}
+            isOnDeck={match.id === onDeckId}
+            running={running}
+            teamById={teamById}
+            order={order}
+            allianceNumbers={allianceNumbers.get(match.id) ?? null}
+            searchNumbers={searchNumbers}
+          />
+        ))
+      )}
+    </>
+  )
+}
+
+function MatchRow({
+  match,
+  isCurrent,
+  isOnDeck,
+  running,
+  teamById,
+  order,
+  allianceNumbers,
+  searchNumbers,
+}: {
+  match: PublicMatch
+  isCurrent: boolean
+  isOnDeck: boolean
+  running: boolean
+  teamById: Map<string, PublicTeam>
+  order: readonly [Alliance, Alliance]
+  allianceNumbers: { red: number | null; blue: number | null } | null
+  searchNumbers: Set<number>
 }) {
   return (
     <div
@@ -1005,6 +1121,8 @@ function MatchRow({
                   : [match.blue1, match.blue2, match.blue3, match.blue4]
               }
               teamById={teamById}
+              allianceNumber={allianceNumbers?.[side] ?? null}
+              searchNumbers={searchNumbers}
             />
           </span>
         ))}
@@ -1012,6 +1130,7 @@ function MatchRow({
       <MatchStatusBadge
         match={match}
         isCurrent={isCurrent}
+        isOnDeck={isOnDeck}
         running={running}
         order={order}
       />
@@ -1023,10 +1142,14 @@ function AllianceTeams({
   color,
   teamIds,
   teamById,
+  allianceNumber,
+  searchNumbers,
 }: {
   color: "red" | "blue"
   teamIds: (string | null)[]
   teamById: Map<string, PublicTeam>
+  allianceNumber?: number | null
+  searchNumbers?: Set<number>
 }) {
   const teams = teamIds
     .map((id) => (id ? teamById.get(id) : undefined))
@@ -1042,13 +1165,26 @@ function AllianceTeams({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {allianceNumber != null && (
+        <Badge
+          variant="outline"
+          className="font-mono font-bold tabular-nums"
+          style={{ color: style.color, borderColor: style.color }}
+          title={`Alliance ${allianceNumber}`}
+        >
+          A{allianceNumber}
+        </Badge>
+      )}
       {teams.map((team) => (
         <span key={team.teamId} className="inline-flex items-center gap-1">
           <Badge
             variant="outline"
             className={cn(
-              "font-mono font-semibold tabular-nums",
-              team.cards.disqualified && "line-through opacity-50"
+              // tabular-nums + a fixed min width so numbers line up in columns
+              "min-w-10 justify-center font-mono font-semibold tabular-nums",
+              team.cards.disqualified && "line-through opacity-50",
+              searchNumbers?.has(team.number) &&
+                "ring-2 ring-primary ring-offset-1 ring-offset-background"
             )}
             style={style}
             title={team.name}
@@ -1065,11 +1201,13 @@ function AllianceTeams({
 function MatchStatusBadge({
   match,
   isCurrent,
+  isOnDeck,
   running,
   order,
 }: {
   match: PublicMatch
   isCurrent: boolean
+  isOnDeck: boolean
   running: boolean
   order: readonly [Alliance, Alliance]
 }) {
@@ -1090,5 +1228,9 @@ function MatchStatusBadge({
       </Badge>
     )
   }
-  return <Badge variant="outline">On Deck</Badge>
+  // only the single next-up match gets the on-deck tag
+  if (isOnDeck) {
+    return <Badge variant="outline">On Deck</Badge>
+  }
+  return null
 }

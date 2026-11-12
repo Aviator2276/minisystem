@@ -21,6 +21,13 @@ export interface ScoreTotals {
   boulders: number
 }
 
+/**
+ * Game-agnostic manual score adjustment event type. A score event of this type
+ * carries a signed `{ points }` payload that is folded onto the alliance's
+ * computed total outside the per-game reducer (see services/scoring.ts).
+ */
+export const MANUAL_ADJUST_TYPE = "MANUAL_ADJUST"
+
 export type { AllianceColor, MatchType }
 
 export function opponentOf(alliance: AllianceColor): AllianceColor {

@@ -51,12 +51,19 @@ export const login = createServerFn({ method: "POST" })
       )
     }
 
-    const user = db
+    // Usernames are not unique: multiple team accounts can share the same
+    // padded team number (the same number registered at different events).
+    // Resolve the collision by password — the account whose password verifies
+    // wins. Admin usernames are effectively unique so this is a no-op for them.
+    const candidates = db
       .select()
       .from(tables.users)
       .where(eq(tables.users.username, data.username))
-      .get()
-    if (!user || !verifyPassword(data.password, user.passwordHash)) {
+      .all()
+    const user = candidates.find((u) =>
+      verifyPassword(data.password, u.passwordHash)
+    )
+    if (!user) {
       recordLoginFailure(ip, data.username)
       setResponseStatus(401)
       throw new Error("Invalid username or password")

@@ -248,6 +248,14 @@ function ControlPanel() {
     setMatches(loaded.matches)
   }, [loaded.matches])
 
+  // re-sync selection when the loader refetches (e.g. a card/DQ change shifts
+  // rankings): the "invite (rank order)" list reflects live rank order, so it
+  // must re-order. selection_update patches don't invalidate the loader, so
+  // loaded.selection's reference stays stable between them — no clobber.
+  useEffect(() => {
+    setSelection(loaded.selection)
+  }, [loaded.selection])
+
   // re-seed the points panel from the cached aggregates when the queue changes
   useEffect(() => {
     setTotals({

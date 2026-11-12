@@ -3,6 +3,7 @@ import { tables } from "@/db"
 import type { Db } from "@/db"
 import type { MatchType } from "@/db/schema"
 import { generateQualSchedule } from "@/server/scheduling/matchmaker"
+import { matchDeletable } from "@/shared/match-format"
 import { getEvent, getEventInStatus, listEventTeams } from "./events"
 
 export function listMatches(db: Db, eventId: string) {
@@ -177,56 +178,80 @@ export function createCustomMatch(
   )
 }
 
-/** Deletes a match (and its score events). Refuses a running match. */
-export function deleteMatch(db: Db, eventId: string, matchId: string) {
-  const match = getMatch(db, matchId)
+/** Hard failures that abort a delete (and roll back a whole batch). */
+function assertDeleteAllowed(
+  match: typeof tables.matches.$inferSelect,
+  eventId: string
+): void {
   if (match.eventId !== eventId)
     throw new Error("Match belongs to a different event")
   if (match.status === "running")
     throw new Error("Cannot delete a running match")
-
-  return db.transaction((tx) => {
-    // clear the field's queued match if it points here, so nothing dangles
-    const event = getEvent(tx, eventId)
-    if (event.currentMatchId === matchId) {
-      tx.update(tables.events)
-        .set({ currentMatchId: null })
-        .where(eq(tables.events.id, eventId))
-        .run()
-    }
-    // score_events cascade on match delete (FK), so just remove the row
-    tx.delete(tables.matches).where(eq(tables.matches.id, matchId)).run()
-  })
 }
 
 /**
- * Delete several matches in one transaction — all-or-nothing, so a single
- * running or mismatched match rejects the whole batch rather than leaving a
- * partial delete behind.
+ * Reason a match is skipped rather than deleted, or null if deletable.
+ * Deletable: practice, unposted quals, and off-bracket "extra" playoff
+ * matches (see `matchDeletable`).
+ */
+function deleteSkipReason(
+  match: typeof tables.matches.$inferSelect
+): string | null {
+  if (!matchDeletable(match)) {
+    if (match.type === "qualification")
+      return "Cannot delete a posted qualification match — reset it first"
+    return "Bracket playoff matches can't be deleted — regenerate the bracket instead"
+  }
+  return null
+}
+
+function deleteMatchRow(tx: Db, eventId: string, matchId: string) {
+  // if the match was queued on the field, clear the pointer so it never dangles
+  if (getEvent(tx, eventId).currentMatchId === matchId) {
+    tx.update(tables.events)
+      .set({ currentMatchId: null })
+      .where(eq(tables.events.id, eventId))
+      .run()
+  }
+  // cards linked to this match (red-card score zeroing) would dangle; drop them
+  tx.delete(tables.cards).where(eq(tables.cards.matchId, matchId)).run()
+  // score_events cascade on match delete (FK), so just remove the row
+  tx.delete(tables.matches).where(eq(tables.matches.id, matchId)).run()
+}
+
+/** Deletes a match (and its score events, which cascade). */
+export function deleteMatch(db: Db, eventId: string, matchId: string) {
+  const match = getMatch(db, matchId)
+  assertDeleteAllowed(match, eventId)
+  const reason = deleteSkipReason(match)
+  if (reason) throw new Error(reason)
+  return db.transaction((tx) => deleteMatchRow(tx, eventId, matchId))
+}
+
+/**
+ * Delete several matches in one transaction. A running (or foreign) match
+ * rejects the whole batch; ineligible-but-harmless picks (posted quals,
+ * bracket playoff matches) are skipped and counted so the caller can
+ * summarize.
  */
 export function deleteMatches(db: Db, eventId: string, matchIds: string[]) {
   const ids = [...new Set(matchIds)]
-  if (ids.length === 0) return
+  if (ids.length === 0) return { deleted: 0, skipped: 0 }
 
   return db.transaction((tx) => {
-    const event = getEvent(tx, eventId)
+    let deleted = 0
+    let skipped = 0
     for (const matchId of ids) {
       const match = getMatch(tx, matchId)
-      if (match.eventId !== eventId)
-        throw new Error("Match belongs to a different event")
-      if (match.status === "running")
-        throw new Error("Cannot delete a running match")
+      assertDeleteAllowed(match, eventId) // throws → whole batch rolls back
+      if (deleteSkipReason(match)) {
+        skipped++
+        continue
+      }
+      deleteMatchRow(tx, eventId, matchId)
+      deleted++
     }
-    if (event.currentMatchId && ids.includes(event.currentMatchId)) {
-      tx.update(tables.events)
-        .set({ currentMatchId: null })
-        .where(eq(tables.events.id, eventId))
-        .run()
-    }
-    // score_events cascade on match delete (FK), so just remove the rows
-    for (const matchId of ids) {
-      tx.delete(tables.matches).where(eq(tables.matches.id, matchId)).run()
-    }
+    return { deleted, skipped }
   })
 }
 

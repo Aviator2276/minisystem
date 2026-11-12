@@ -4,6 +4,12 @@ import { tables } from "@/db"
 import type { Db } from "@/db"
 import { hashPassword } from "@/server/auth/password"
 
+export interface TeamEventRef {
+  id: string
+  name: string
+  slug: string
+}
+
 export function listTeams(db: Db) {
   const teams = db
     .select()
@@ -19,10 +25,24 @@ export function listTeams(db: Db) {
       .all()
       .map((u) => u.teamId)
   )
+  const eventLinks = db
+    .select({
+      teamId: tables.eventTeams.teamId,
+      id: tables.events.id,
+      name: tables.events.name,
+      slug: tables.events.slug,
+    })
+    .from(tables.eventTeams)
+    .innerJoin(tables.events, eq(tables.eventTeams.eventId, tables.events.id))
+    .orderBy(asc(tables.events.createdAt))
+    .all()
   return teams.map((team) => ({
     ...team,
     participants: participants.filter((p) => p.teamId === team.id),
     hasAccount: accounts.has(team.id),
+    events: eventLinks
+      .filter((e) => e.teamId === team.id)
+      .map(({ id, name, slug }): TeamEventRef => ({ id, name, slug })),
   }))
 }
 
@@ -122,4 +142,28 @@ export function provisionTeamAccount(
       .run()
   }
   return { username, password }
+}
+
+/**
+ * Sets the same password on many teams' login accounts at once, creating an
+ * account for any team that doesn't have one yet. Returns one row per team with
+ * the resolved username (the padded team number). The password is shared, so it
+ * is returned once for the caller to relay.
+ */
+export function bulkProvisionTeamAccounts(
+  db: Db,
+  teamIds: string[],
+  password: string
+) {
+  const results: { teamId: string; number: number; username: string }[] = []
+  for (const teamId of teamIds) {
+    const { username } = provisionTeamAccount(db, teamId, password)
+    const team = db
+      .select({ number: tables.teams.number })
+      .from(tables.teams)
+      .where(eq(tables.teams.id, teamId))
+      .get()
+    results.push({ teamId, number: team?.number ?? 0, username })
+  }
+  return { password, accounts: results }
 }

@@ -1,9 +1,12 @@
 import { and, asc, eq } from "drizzle-orm"
+import { z } from "zod"
 import { tables } from "@/db"
 import type { Db } from "@/db"
 import type { AllianceColor } from "@/db/schema"
 import { getGame } from "@/games"
+import { playoffMatches } from "@/server/playoffs/advance"
 import type { JsonObject } from "@/shared/json"
+import { MANUAL_ADJUST_TYPE } from "@/shared/score-types"
 import type { GameScoreEvent, ScoreTotals } from "@/shared/score-types"
 import { getEvent } from "./events"
 import { getMatch } from "./matches"
@@ -12,6 +15,14 @@ export interface CachedAllianceScore {
   state: unknown
   totals: ScoreTotals
 }
+
+/**
+ * Game-agnostic manual score adjustment. Recorded as a score event with a
+ * signed `points` payload and folded onto the computed total outside the game
+ * reducer, so every game gets it for free and it stays undoable like any event.
+ */
+export const MANUAL_ADJUST = MANUAL_ADJUST_TYPE
+const manualAdjustPayload = z.object({ points: z.number().int() })
 
 /** which alliances of this match have their score zeroed by a live red card */
 function redCardedAlliances(
@@ -68,17 +79,23 @@ export function recordScoreEvent(
   const match = getMatch(db, input.matchId)
   const game = getGame(getEvent(db, match.eventId).gameId)
 
-  const def = (
-    game.scoreEventTypes as Record<
-      string,
-      (typeof game.scoreEventTypes)[string] | undefined
-    >
-  )[input.type]
-  if (!def)
-    throw new Error(
-      `Unknown score event type '${input.type}' for game ${game.id}`
-    )
-  const payload = def.payload.parse(input.payload) as JsonObject
+  let payload: JsonObject
+  if (input.type === MANUAL_ADJUST) {
+    // not a game event: validated here, applied outside the game reducer
+    payload = manualAdjustPayload.parse(input.payload)
+  } else {
+    const def = (
+      game.scoreEventTypes as Record<
+        string,
+        (typeof game.scoreEventTypes)[string] | undefined
+      >
+    )[input.type]
+    if (!def)
+      throw new Error(
+        `Unknown score event type '${input.type}' for game ${game.id}`
+      )
+    payload = def.payload.parse(input.payload) as JsonObject
+  }
 
   // server-computed; client clocks are never trusted
   const matchTimeMs = match.startedAt
@@ -134,7 +151,12 @@ export function recomputeMatchScore(db: Db, matchId: string) {
     red: game.initialScore(),
     blue: game.initialScore(),
   }
+  const manual: Record<AllianceColor, number> = { red: 0, blue: 0 }
   for (const e of events) {
+    if (e.type === MANUAL_ADJUST) {
+      manual[e.alliance] += Number((e.payload as { points?: number }).points ?? 0)
+      continue
+    }
     const gameEvent: GameScoreEvent = {
       type: e.type,
       alliance: e.alliance,
@@ -146,6 +168,9 @@ export function recomputeMatchScore(db: Db, matchId: string) {
 
   let redTotals = game.computeTotals(states.red, states.blue, match.type)
   let blueTotals = game.computeTotals(states.blue, states.red, match.type)
+  // signed manual adjustments ride on top of the game-computed total
+  redTotals = { ...redTotals, total: redTotals.total + manual.red }
+  blueTotals = { ...blueTotals, total: blueTotals.total + manual.blue }
 
   // a red card issued during this match zeroes that alliance's score
   const zeroed = redCardedAlliances(db, match)
@@ -218,6 +243,39 @@ export function resetMatchScores(db: Db, matchId: string) {
       .returning()
       .get()
   })
+}
+
+/**
+ * Fully resets a match (even a posted one) back to `scheduled`: drops its score
+ * events and clears cached totals / winner / RP. Refuses a running match, and —
+ * for a bracket-slot playoff match — refuses if a downstream match fed by its
+ * winner/loser has already posted (that result would become inconsistent).
+ * Callers re-run `resolveBracket` for playoffs.
+ */
+export function resetMatch(db: Db, eventId: string, matchId: string) {
+  const match = getMatch(db, matchId)
+  if (match.eventId !== eventId)
+    throw new Error("Match belongs to a different event")
+  if (match.status === "running")
+    throw new Error("Cannot reset a running match — stop it on the field first")
+
+  if (match.type === "playoff" && match.bracketSlot) {
+    const slot = match.bracketSlot
+    const downstreamPosted = playoffMatches(db, eventId).some(
+      (m) =>
+        m.status === "posted" &&
+        (m.redSource === `winner:${slot}` ||
+          m.redSource === `loser:${slot}` ||
+          m.blueSource === `winner:${slot}` ||
+          m.blueSource === `loser:${slot}`)
+    )
+    if (downstreamPosted)
+      throw new Error(
+        "Can't reset — a later playoff match fed by this one has already posted"
+      )
+  }
+
+  return resetMatchScores(db, matchId)
 }
 
 export function listScoreEvents(db: Db, matchId: string) {

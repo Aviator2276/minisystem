@@ -157,22 +157,52 @@ export function adjustRankingPoints(
   return next
 }
 
+export interface AttachSkip {
+  number: number
+  name: string
+  reason: string
+}
+
 export function attachTeams(db: Db, eventId: string, teamIds: string[]) {
-  const existing = new Set(
-    db
-      .select({ teamId: tables.eventTeams.teamId })
-      .from(tables.eventTeams)
-      .where(eq(tables.eventTeams.eventId, eventId))
-      .all()
-      .map((r) => r.teamId)
-  )
-  const fresh = teamIds.filter((id) => !existing.has(id))
+  const onRoster = db
+    .select({ teamId: tables.eventTeams.teamId, number: tables.teams.number })
+    .from(tables.eventTeams)
+    .innerJoin(tables.teams, eq(tables.eventTeams.teamId, tables.teams.id))
+    .where(eq(tables.eventTeams.eventId, eventId))
+    .all()
+  const existing = new Set(onRoster.map((r) => r.teamId))
+  // Enforce per-event number uniqueness: a number already on the roster (or
+  // claimed earlier in this same batch) blocks another team row with that
+  // number from joining the event.
+  const usedNumbers = new Set(onRoster.map((r) => r.number))
+
+  const fresh: string[] = []
+  const skipped: AttachSkip[] = []
+  for (const teamId of teamIds) {
+    if (existing.has(teamId)) continue
+    const team = db
+      .select({ number: tables.teams.number, name: tables.teams.name })
+      .from(tables.teams)
+      .where(eq(tables.teams.id, teamId))
+      .get()
+    if (!team) continue
+    if (usedNumbers.has(team.number)) {
+      skipped.push({
+        number: team.number,
+        name: team.name,
+        reason: `number ${team.number} is already on this event's roster`,
+      })
+      continue
+    }
+    usedNumbers.add(team.number)
+    fresh.push(teamId)
+  }
   if (fresh.length > 0) {
     db.insert(tables.eventTeams)
       .values(fresh.map((teamId) => ({ eventId, teamId })))
       .run()
   }
-  return fresh.length
+  return { attached: fresh.length, skipped }
 }
 
 export function detachTeam(db: Db, eventId: string, teamId: string) {

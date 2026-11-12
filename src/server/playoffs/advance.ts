@@ -71,6 +71,221 @@ export function generateBracket(db: Db, eventId: string) {
   })
 }
 
+/**
+ * Swaps the finals between a single "F" match and a best-of-3 series
+ * (F1/F2/F3) in place, leaving the rest of the bracket untouched. This is how
+ * the format changes mid-playoffs, when posted results block a full
+ * regeneration. Allowed until a finals match is loaded on the field, running,
+ * or has results. Returns true when the bracket was reshaped, false when it
+ * was already in the requested shape (or no bracket exists yet).
+ */
+export function reshapeFinals(db: Db, eventId: string, bestOf3: boolean) {
+  const event = getEventInStatus(db, eventId, ["playoffs"])
+  const matches = playoffMatches(db, eventId)
+  // `F`, `F1`..`F<n>` — an extended series can run past F3, so match any F-digit
+  const finals = matches.filter((m) => /^F\d*$/.test(m.bracketSlot ?? ""))
+  if (finals.length === 0) return false
+  const isSeries = finals.some((m) => m.bracketSlot !== "F")
+  if (isSeries === bestOf3) return false
+
+  const started = finals.find(
+    (m) => m.status !== "scheduled" || m.id === event.currentMatchId
+  )
+  if (started) {
+    throw new Error(
+      started.status === "posted"
+        ? "Can't change the finals format — a finals match already has posted results"
+        : "Can't change the finals format while a finals match is on the field — clear it from match control first"
+    )
+  }
+
+  const alliances = db
+    .select({ id: tables.alliances.id })
+    .from(tables.alliances)
+    .where(eq(tables.alliances.eventId, eventId))
+    .all()
+  const seededCount = Math.min(alliances.length, MAX_PLAYOFF_ALLIANCES)
+  const finalTemplate = bracketTemplate(seededCount).find(
+    (m) => m.slot === "F"
+  )
+  if (!finalTemplate) return false
+
+  const first = finals[0]
+  const maxNumber = Math.max(...matches.map((m) => m.number))
+  const maxOrder = db
+    .select({ value: tables.matches.scheduledOrder })
+    .from(tables.matches)
+    .where(eq(tables.matches.eventId, eventId))
+    .orderBy(desc(tables.matches.scheduledOrder))
+    .limit(1)
+    .get()
+
+  db.transaction((tx) => {
+    for (const f of finals) {
+      tx.delete(tables.matches).where(eq(tables.matches.id, f.id)).run()
+    }
+    const games = bestOf3
+      ? [
+          { slot: "F1", red: finalTemplate.red, blue: finalTemplate.blue },
+          // game 2 swaps colors to even out any field advantage
+          { slot: "F2", red: finalTemplate.blue, blue: finalTemplate.red },
+          { slot: "F3", red: finalTemplate.red, blue: finalTemplate.blue },
+        ]
+      : [{ slot: "F", red: finalTemplate.red, blue: finalTemplate.blue }]
+    games.forEach((g, i) => {
+      tx.insert(tables.matches)
+        .values({
+          eventId,
+          type: "playoff",
+          number: i === 0 ? first.number : maxNumber + i,
+          bracketSlot: g.slot,
+          redSource: g.red,
+          blueSource: g.blue,
+          scheduledOrder:
+            i === 0 ? first.scheduledOrder : (maxOrder?.value ?? 0) + i,
+        })
+        .run()
+    })
+    resolveBracket(tx, eventId)
+  })
+  return true
+}
+
+/**
+ * Creates an off-bracket "extra" playoff match between two existing alliances.
+ * It has no `bracketSlot` and no sources, so `resolveBracket`, the champion
+ * math, and the bracket graphic all ignore it — but the alliances are
+ * denormalized into red1/2/3(/4) so it queues, scores, and displays like any
+ * other match. Used for exhibition/re-play matches outside the double-elim run.
+ */
+export function createExtraPlayoffMatch(
+  db: Db,
+  eventId: string,
+  redAllianceNumber: number,
+  blueAllianceNumber: number
+): MatchRow {
+  getEventInStatus(db, eventId, ["playoffs"])
+  if (redAllianceNumber === blueAllianceNumber) {
+    throw new Error("Pick two different alliances")
+  }
+  const alliances = db
+    .select()
+    .from(tables.alliances)
+    .where(eq(tables.alliances.eventId, eventId))
+    .all()
+  const bySeed = new Map(alliances.map((a) => [a.number, a]))
+  const red = bySeed.get(redAllianceNumber)
+  const blue = bySeed.get(blueAllianceNumber)
+  if (!red || !blue) throw new Error("Alliance not found")
+
+  return db.transaction((tx) => {
+    const maxNumber = tx
+      .select({ value: tables.matches.number })
+      .from(tables.matches)
+      .where(
+        and(
+          eq(tables.matches.eventId, eventId),
+          eq(tables.matches.type, "playoff")
+        )
+      )
+      .orderBy(desc(tables.matches.number))
+      .limit(1)
+      .get()
+    const maxOrder = tx
+      .select({ value: tables.matches.scheduledOrder })
+      .from(tables.matches)
+      .where(eq(tables.matches.eventId, eventId))
+      .orderBy(desc(tables.matches.scheduledOrder))
+      .limit(1)
+      .get()
+    return tx
+      .insert(tables.matches)
+      .values({
+        eventId,
+        type: "playoff",
+        number: (maxNumber?.value ?? 0) + 1,
+        scheduledOrder: (maxOrder?.value ?? 0) + 1,
+        redAllianceId: red.id,
+        blueAllianceId: blue.id,
+        red1: red.captainTeamId,
+        red2: red.pick1TeamId,
+        red3: red.pick2TeamId,
+        red4: red.backupTeamId,
+        blue1: blue.captainTeamId,
+        blue2: blue.pick1TeamId,
+        blue3: blue.pick2TeamId,
+        blue4: blue.backupTeamId,
+      })
+      .returning()
+      .get()
+  })
+}
+
+/**
+ * Appends one more game to the grand-final series between the same two
+ * finalists. A single "F" becomes "F1"+"F2"; a best-of-3 (F1/F2/F3) becomes
+ * F1..F4, and so on. Even-numbered games swap red/blue to even out field bias
+ * (matching {@link expandFinalsBestOf3}). Allowed only once both finalists are
+ * decided; unlike a format change it is intentionally NOT blocked by posted
+ * finals — adding a game to a settled 2-0 lead raises `winsNeeded` and reopens
+ * the championship on purpose.
+ */
+export function extendFinalsSeries(db: Db, eventId: string): boolean {
+  getEventInStatus(db, eventId, ["playoffs"])
+  const matches = playoffMatches(db, eventId)
+  const finals = matches.filter((m) => /^F\d*$/.test(m.bracketSlot ?? ""))
+  if (finals.length === 0) throw new Error("No finals to extend")
+
+  const anchor = finals[0]
+  if (!anchor.redAllianceId || !anchor.blueAllianceId) {
+    throw new Error("The finals participants aren't decided yet")
+  }
+
+  const alliances = db
+    .select({ id: tables.alliances.id })
+    .from(tables.alliances)
+    .where(eq(tables.alliances.eventId, eventId))
+    .all()
+  const seededCount = Math.min(alliances.length, MAX_PLAYOFF_ALLIANCES)
+  const finalTemplate = bracketTemplate(seededCount).find((m) => m.slot === "F")
+  if (!finalTemplate) return false
+
+  const nextIndex = finals.length + 1
+  const swap = nextIndex % 2 === 0 // even games swap colors, like F2
+  const newSlot = `F${nextIndex}`
+  const maxNumber = Math.max(...matches.map((m) => m.number))
+  const maxOrder = db
+    .select({ value: tables.matches.scheduledOrder })
+    .from(tables.matches)
+    .where(eq(tables.matches.eventId, eventId))
+    .orderBy(desc(tables.matches.scheduledOrder))
+    .limit(1)
+    .get()
+
+  db.transaction((tx) => {
+    // a lone single final becomes game 1 of the new series
+    if (finals.length === 1 && anchor.bracketSlot === "F") {
+      tx.update(tables.matches)
+        .set({ bracketSlot: "F1" })
+        .where(eq(tables.matches.id, anchor.id))
+        .run()
+    }
+    tx.insert(tables.matches)
+      .values({
+        eventId,
+        type: "playoff",
+        number: maxNumber + 1,
+        bracketSlot: newSlot,
+        redSource: swap ? finalTemplate.blue : finalTemplate.red,
+        blueSource: swap ? finalTemplate.red : finalTemplate.blue,
+        scheduledOrder: (maxOrder?.value ?? 0) + 1,
+      })
+      .run()
+    resolveBracket(tx, eventId)
+  })
+  return true
+}
+
 export function playoffMatches(db: Db, eventId: string): MatchRow[] {
   return db
     .select()
@@ -184,14 +399,15 @@ export function getBracket(db: Db, eventId: string): BracketView {
   function slotMeta(slot: string): { bracket: string; round: number } {
     const direct = meta.get(slot)
     if (direct) return { bracket: direct.bracket, round: direct.round }
-    const fm = /^F([123])$/.exec(slot)
+    const fm = /^F(\d+)$/.exec(slot)
     if (fm) return { bracket: "final", round: finalRound + Number(fm[1]) - 1 }
     return { bracket: "upper", round: 1 }
   }
 
-  // the champion is decided by the finals: a single "F" match, or a best-of-3
-  // series (F1/F2/F3) where the first alliance to win the majority of games wins
-  const finals = matches.filter((m) => /^F[123]?$/.test(m.bracketSlot ?? ""))
+  // the champion is decided by the finals: a single "F" match, or a series
+  // (F1/F2/F3/…) where the first alliance to win the majority of games wins.
+  // A series can be extended past best-of-3, so match any F-digit slot.
+  const finals = matches.filter((m) => /^F\d*$/.test(m.bracketSlot ?? ""))
   const winsNeeded = Math.floor(finals.length / 2) + 1
   const winCounts = new Map<string, number>()
   for (const f of finals) {

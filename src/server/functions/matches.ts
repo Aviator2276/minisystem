@@ -61,10 +61,7 @@ export const deleteMatches = createServerFn({ method: "POST" })
   .validator(
     z.object({ eventId: z.string(), matchIds: z.array(z.string()).min(1) })
   )
-  .handler(({ data }) => {
-    matches.deleteMatches(db, data.eventId, data.matchIds)
-    return { deleted: data.matchIds.length }
-  })
+  .handler(({ data }) => matches.deleteMatches(db, data.eventId, data.matchIds))
 
 export const reorderMatches = createServerFn({ method: "POST" })
   .middleware([requireAdmin])

@@ -9,9 +9,17 @@ function finalLabel(
 ): string | null {
   if (!slot) return null
   if (slot === "F") return long ? "Final" : "F"
-  const m = /^F([123])$/.exec(slot)
+  const m = /^F(\d+)$/.exec(slot)
   if (m) return long ? `Final ${m[1]}` : slot
   return null
+}
+
+/** An off-bracket "extra" playoff match: type playoff with no bracket slot. */
+export function isExtraPlayoffMatch(match: {
+  type: string
+  bracketSlot?: string | null
+}): boolean {
+  return match.type === "playoff" && !match.bracketSlot
 }
 
 /** Short match code, e.g. Q3 / P5 / Pr2 / F1. */
@@ -42,6 +50,7 @@ export function matchLongLabel(match: {
   if (match.type === "playoff") {
     const f = finalLabel(match.bracketSlot, true)
     if (f) return f
+    if (!match.bracketSlot) return `Playoff ${match.number} (Extra)`
   }
   const name =
     match.type === "qualification"
@@ -50,6 +59,41 @@ export function matchLongLabel(match: {
         ? "Practice"
         : "Playoff"
   return `${name} ${match.number}`
+}
+
+/**
+ * Whether a match may be deleted (ignoring the live/queued-match check, which
+ * needs the event and lives in the service). Deletable: practice matches,
+ * unposted qualification matches, and off-bracket "extra" playoff matches.
+ * Never: running matches or bracket-slot playoff matches (regenerate/reshape
+ * those instead).
+ */
+export function matchDeletable(match: {
+  type: string
+  status: string
+  bracketSlot?: string | null
+}): boolean {
+  if (match.status === "running") return false
+  if (match.type === "practice") return true
+  if (match.type === "qualification") return match.status !== "posted"
+  return isExtraPlayoffMatch(match)
+}
+
+/**
+ * The most recently played (highest play order) posted qualification match —
+ * the one whose result the current rankings reflect. Returns null before any
+ * qual has posted (e.g. practice-only or pre-event), so callers fall back to a
+ * timestamp caption.
+ */
+export function latestRankedMatch<
+  T extends { type: string; status: string; scheduledOrder: number },
+>(list: readonly T[]): T | null {
+  let best: T | null = null
+  for (const m of list) {
+    if (m.status !== "posted" || m.type !== "qualification") continue
+    if (!best || m.scheduledOrder > best.scheduledOrder) best = m
+  }
+  return best
 }
 
 // canonical display ordering: practice first, then quals, then playoffs
